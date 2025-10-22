@@ -435,9 +435,12 @@ class RevSharePoolGenerator:
             Tuple of (stable_payout, growth_payout, watermark_exceeded)
         """
         if month_end_cumulative_ggr > self.high_watermark:
-            # New high reached - calculate payout on FULL cumulative GGR
-            stable_payout = month_end_cumulative_ggr * self.stable_weighted_rate
-            growth_payout = month_end_cumulative_ggr * self.growth_weighted_rate
+            # New high reached - calculate payout only on the INCREMENT above watermark
+            ggr_increment = month_end_cumulative_ggr - self.high_watermark
+            
+            # Apply pool weights to the weighted rates
+            stable_payout = ggr_increment * self.stable_weighted_rate * self.stable_ratio
+            growth_payout = ggr_increment * self.growth_weighted_rate * self.growth_ratio
             
             # Update watermark
             self.high_watermark = month_end_cumulative_ggr
@@ -475,18 +478,23 @@ class RevSharePoolGenerator:
         summary['ggr_negative_days'] = negative_days_per_month
         
         # Apply high watermark logic for payouts
-        stable_payouts = []
-        growth_payouts = []
+        monthly_stable_payouts = []
+        monthly_growth_payouts = []
         watermark_exceeded = []
+        cumulative_stable = 0.0
+        cumulative_growth = 0.0
         
         for _, row in summary.iterrows():
-            stable_payout, growth_payout, exceeded = self._calculate_monthly_payout(row['cumulative_ggr'])
-            stable_payouts.append(stable_payout)
-            growth_payouts.append(growth_payout)
+            monthly_stable, monthly_growth, exceeded = self._calculate_monthly_payout(row['cumulative_ggr'])
+            cumulative_stable += monthly_stable
+            cumulative_growth += monthly_growth
+            
+            monthly_stable_payouts.append(cumulative_stable)
+            monthly_growth_payouts.append(cumulative_growth)
             watermark_exceeded.append(exceeded)
         
-        summary['stable_payout'] = stable_payouts
-        summary['growth_payout'] = growth_payouts
+        summary['stable_payout'] = monthly_stable_payouts
+        summary['growth_payout'] = monthly_growth_payouts
         summary['watermark_exceeded'] = watermark_exceeded
         summary['monthly_referral_cost'] = summary['daily_referral_cost']
         summary['capital_cost_usd'] = summary['traffic_spend'] + summary['monthly_referral_cost']

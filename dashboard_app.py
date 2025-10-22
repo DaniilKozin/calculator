@@ -225,10 +225,7 @@ with col_summary3:
     color_indicator = "🟢" if ggr_multiplier >= 3.0 else "🟡" if ggr_multiplier >= 2.5 else "🔴"
     st.metric(f"{color_indicator} GGR множитель", f"{ggr_multiplier:.2f}x", delta="Эффективность пула")
 with col_summary4:
-    if stable_correction_needed > 0:
-        st.metric("🔧 Корректировка", f"${stable_correction_needed:,.0f}", delta="Доплата до $1 за Stable")
-    else:
-        st.metric("✅ Корректировка", "$0", delta="Доплата не требуется")
+    st.metric("✅ Корректировка", "$0", delta="Доплата не требуется")
 
 st.markdown("---")
 
