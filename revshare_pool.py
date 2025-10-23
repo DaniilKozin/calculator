@@ -38,6 +38,13 @@ class RevSharePoolGenerator:
         upfront_bonus_growth: float = 0.03,
         ongoing_share_stable: float = 0.04,
         ongoing_share_growth: float = 0.15,
+        # ZNX price parameter
+        znx_price: float = 1.0,
+        znx_amount: Optional[float] = None,
+        znx_rate: Optional[float] = None,
+        # Absolute token amounts (alternative to ratios)
+        stable_znx_amount: Optional[float] = None,
+        growth_znx_amount: Optional[float] = None,
         seed: Optional[int] = None,
     ) -> None:
         if traffic_budget is None:
@@ -68,6 +75,34 @@ class RevSharePoolGenerator:
         self.upfront_bonus_growth = float(upfront_bonus_growth)
         self.ongoing_share_stable = float(ongoing_share_stable)
         self.ongoing_share_growth = float(ongoing_share_growth)
+        self.znx_price = float(znx_price)
+        self.znx_amount = znx_amount
+        self.znx_rate = znx_rate
+        
+        # Handle absolute token amounts if provided
+        if stable_znx_amount is not None and growth_znx_amount is not None:
+            if znx_amount is None:
+                raise ValueError("znx_amount must be provided when using absolute token amounts")
+            
+            total_allocated = stable_znx_amount + growth_znx_amount
+            if total_allocated > znx_amount:
+                raise ValueError(f"Total allocated tokens ({total_allocated}) exceeds total ZNX amount ({znx_amount})")
+            
+            # Recalculate ratios based on absolute amounts
+            self.stable_ratio = float(stable_znx_amount / znx_amount) if znx_amount > 0 else 0.0
+            self.growth_ratio = float(growth_znx_amount / znx_amount) if znx_amount > 0 else 0.0
+            
+            # Store absolute amounts
+            self.stable_znx_amount = float(stable_znx_amount)
+            self.growth_znx_amount = float(growth_znx_amount)
+        else:
+            # Use provided ratios and calculate absolute amounts if znx_amount is available
+            if znx_amount is not None:
+                self.stable_znx_amount = float(znx_amount * stable_ratio)
+                self.growth_znx_amount = float(znx_amount * growth_ratio)
+            else:
+                self.stable_znx_amount = None
+                self.growth_znx_amount = None
         
         # Calculate upfront referral costs
         referred_capital = self.pool_size * self.referral_ratio
@@ -238,14 +273,12 @@ class RevSharePoolGenerator:
     def generate_daily_data(self) -> pd.DataFrame:
         traffic_df = self._generate_ftd_schedule()
         ftd_map = {int(row.day): int(row.new_ftds) for _, row in traffic_df.iterrows()}
-        # Prepare daily frame
+        
+        # First, generate basic daily data without payouts
         days = 365
         rows: List[Dict[str, float]] = []
         cumulative_ggr = 0.0
-        cumulative_stable = 0.0
-        cumulative_growth = 0.0
         cumulative_traffic = 0.0
-        cumulative_referral_cost = 0.0
         stable_pool_size = self.pool_size * self.stable_ratio
         growth_pool_size = self.pool_size * self.growth_ratio
 
@@ -264,27 +297,7 @@ class RevSharePoolGenerator:
                 total_deposits += cohort_players * avg_dep
 
             daily_ggr = self._calculate_daily_ggr(total_deposits)
-            
-            # Update cumulative GGR first
             cumulative_ggr += daily_ggr
-            
-            # HIGH WATERMARK LOGIC: выплаты только если совокупный GGR положительный
-            if cumulative_ggr > 0:
-                stable_payout = max(0.0, daily_ggr * self.stable_weighted_rate)
-                growth_payout = max(0.0, daily_ggr * self.growth_weighted_rate)
-            else:
-                # Если совокупный GGR отрицательный - выплаты останавливаются
-                stable_payout = 0.0
-                growth_payout = 0.0
-
-            cumulative_stable += stable_payout
-            cumulative_growth += growth_payout
-
-            # Calculate referral costs based on investor payouts
-            daily_referral_stable = stable_payout * self.referral_ratio * self.ongoing_share_stable
-            daily_referral_growth = growth_payout * self.referral_ratio * self.ongoing_share_growth
-            daily_total_referral = daily_referral_stable + daily_referral_growth
-            cumulative_referral_cost += daily_total_referral
 
             traffic_spend = float(traffic_df.loc[traffic_df['day'] == day, 'traffic_spend'].sum()) if day <= 30 else 0.0
             if day <= 30:
@@ -294,6 +307,7 @@ class RevSharePoolGenerator:
                 "date": date,
                 "day": day,
                 "month": date.month,
+                "year": date.year,
                 "day_of_week": ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][date.weekday()],
                 "new_ftds": int(ftd_map.get(day, 0)) if day <= 30 else 0,
                 "active_players": float(active_players),
@@ -301,21 +315,75 @@ class RevSharePoolGenerator:
                 "total_deposits": float(total_deposits),
                 "daily_ggr": float(daily_ggr),
                 "cumulative_ggr": float(cumulative_ggr),
-                "stable_payout": float(stable_payout),
-                "growth_payout": float(growth_payout),
-                "cumulative_stable": float(cumulative_stable),
-                "cumulative_growth": float(cumulative_growth),
-                "stable_return_pct": float((cumulative_stable / stable_pool_size) * 100.0) if stable_pool_size > 0 else 0.0,
-                "growth_return_pct": float((cumulative_growth / growth_pool_size) * 100.0) if growth_pool_size > 0 else 0.0,
                 "traffic_spend": float(traffic_spend),
                 "cumulative_traffic": float(cumulative_traffic),
-                "daily_referral_cost": float(daily_total_referral),
-                "cumulative_referral_cost": float(cumulative_referral_cost),
                 "effective_traffic_budget": float(self.effective_traffic_budget),
                 "ggr_multiplier": float(cumulative_ggr / self.pool_size),
             })
 
+        # Create DataFrame and get monthly summary with high watermark logic
         df = pd.DataFrame(rows)
+        monthly_summary = self.get_monthly_summary(df)
+        
+        # Now distribute monthly payouts across days of each month
+        cumulative_stable = 0.0
+        cumulative_growth = 0.0
+        cumulative_referral_cost = 0.0
+        
+        for i, row in df.iterrows():
+            # Find the monthly payout for this day's month/year
+            month_data = monthly_summary[
+                (monthly_summary['year'] == row['year']) & 
+                (monthly_summary['month'] == row['month'])
+            ]
+            
+            if len(month_data) > 0:
+                monthly_stable = float(month_data.iloc[0]['stable_payout'])
+                monthly_growth = float(month_data.iloc[0]['growth_payout'])
+                
+                # Get days in this month
+                import calendar
+                days_in_month = calendar.monthrange(row['year'], row['month'])[1]
+                
+                # Distribute monthly payout evenly across days (only on positive GGR days)
+                if row['daily_ggr'] > 0:
+                    # Count positive GGR days in this month
+                    month_mask = (df['year'] == row['year']) & (df['month'] == row['month'])
+                    positive_ggr_days = (df[month_mask]['daily_ggr'] > 0).sum()
+                    
+                    if positive_ggr_days > 0:
+                        daily_stable = monthly_stable / positive_ggr_days
+                        daily_growth = monthly_growth / positive_ggr_days
+                    else:
+                        daily_stable = 0.0
+                        daily_growth = 0.0
+                else:
+                    # No payout on negative GGR days
+                    daily_stable = 0.0
+                    daily_growth = 0.0
+            else:
+                daily_stable = 0.0
+                daily_growth = 0.0
+            
+            cumulative_stable += daily_stable
+            cumulative_growth += daily_growth
+            
+            # Calculate referral costs based on investor payouts
+            daily_referral_stable = daily_stable * self.referral_ratio * self.ongoing_share_stable
+            daily_referral_growth = daily_growth * self.referral_ratio * self.ongoing_share_growth
+            daily_total_referral = daily_referral_stable + daily_referral_growth
+            cumulative_referral_cost += daily_total_referral
+            
+            # Update the row with payout information
+            df.at[i, 'stable_payout'] = float(daily_stable)
+            df.at[i, 'growth_payout'] = float(daily_growth)
+            df.at[i, 'cumulative_stable'] = float(cumulative_stable)
+            df.at[i, 'cumulative_growth'] = float(cumulative_growth)
+            df.at[i, 'stable_return_pct'] = float((cumulative_stable / stable_pool_size) * 100.0) if stable_pool_size > 0 else 0.0
+            df.at[i, 'growth_return_pct'] = float((cumulative_growth / growth_pool_size) * 100.0) if growth_pool_size > 0 else 0.0
+            df.at[i, 'daily_total_referral'] = float(daily_total_referral)
+            df.at[i, 'cumulative_referral_cost'] = float(cumulative_referral_cost)
+
         return df
 
     def calibrate_to_target_ggr(self, tolerance: float = 0.1) -> None:
@@ -460,7 +528,7 @@ class RevSharePoolGenerator:
         df['year'] = df['date'].dt.year
         summary = (
             df.groupby(['year', 'month'], as_index=False)[
-                ['new_ftds', 'active_players', 'total_deposits', 'daily_ggr', 'traffic_spend', 'daily_referral_cost']
+                ['new_ftds', 'active_players', 'total_deposits', 'daily_ggr', 'traffic_spend']
             ].sum()
         )
         
@@ -481,22 +549,26 @@ class RevSharePoolGenerator:
         monthly_stable_payouts = []
         monthly_growth_payouts = []
         watermark_exceeded = []
-        cumulative_stable = 0.0
-        cumulative_growth = 0.0
         
         for _, row in summary.iterrows():
             monthly_stable, monthly_growth, exceeded = self._calculate_monthly_payout(row['cumulative_ggr'])
-            cumulative_stable += monthly_stable
-            cumulative_growth += monthly_growth
             
-            monthly_stable_payouts.append(cumulative_stable)
-            monthly_growth_payouts.append(cumulative_growth)
+            # Store only the monthly payout amounts (not cumulative)
+            monthly_stable_payouts.append(monthly_stable)
+            monthly_growth_payouts.append(monthly_growth)
             watermark_exceeded.append(exceeded)
         
         summary['stable_payout'] = monthly_stable_payouts
         summary['growth_payout'] = monthly_growth_payouts
         summary['watermark_exceeded'] = watermark_exceeded
-        summary['monthly_referral_cost'] = summary['daily_referral_cost']
+        # Calculate monthly referral cost from daily data if available
+        if 'daily_total_referral' in daily_df.columns:
+            monthly_referral = daily_df.groupby(['year', 'month'])['daily_total_referral'].sum().reset_index()
+            summary = summary.merge(monthly_referral, on=['year', 'month'], how='left')
+            summary['monthly_referral_cost'] = summary['daily_total_referral'].fillna(0)
+            summary = summary.drop('daily_total_referral', axis=1)
+        else:
+            summary['monthly_referral_cost'] = 0
         summary['capital_cost_usd'] = summary['traffic_spend'] + summary['monthly_referral_cost']
         return summary
 

@@ -1,32 +1,191 @@
 import os
+import json
+import shutil
 import pandas as pd
 import numpy as np
 import streamlit as st
 import altair as alt
+from datetime import datetime, date
 
 DAILY_CSV = "pool1_nov2025_daily.csv"
 MONTHLY_CSV = "pool1_nov2025_monthly.csv"
 MONTHLY_TIERS_ZNX_CSV = "pool1_nov2025_monthly_tiers_znx.csv"
+SAVED_RESULTS_DIR = "saved_results"
+SAVED_PARAMS_FILE = "generation_params.json"
 
 # Default values (will be overridden by sidebar)
 DEFAULT_POOL_SIZE = 50000
 DEFAULT_STABLE_RATIO = 0.6
 DEFAULT_GROWTH_RATIO = 0.4
 
+# Functions for saving and loading generation results
+def save_generation_result(params, name):
+    """Сохранить результат генерации с параметрами"""
+    if not os.path.exists(SAVED_RESULTS_DIR):
+        os.makedirs(SAVED_RESULTS_DIR)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    result_dir = os.path.join(SAVED_RESULTS_DIR, f"{timestamp}_{name}")
+    os.makedirs(result_dir, exist_ok=True)
+    
+    # Сохранить параметры
+    params_file = os.path.join(result_dir, SAVED_PARAMS_FILE)
+    with open(params_file, 'w', encoding='utf-8') as f:
+        json.dump(params, f, ensure_ascii=False, indent=2, default=str)
+    
+    # Скопировать CSV файлы
+    import shutil
+    if os.path.exists(DAILY_CSV):
+        shutil.copy2(DAILY_CSV, os.path.join(result_dir, DAILY_CSV))
+    if os.path.exists(MONTHLY_CSV):
+        shutil.copy2(MONTHLY_CSV, os.path.join(result_dir, MONTHLY_CSV))
+    if os.path.exists(MONTHLY_TIERS_ZNX_CSV):
+        shutil.copy2(MONTHLY_TIERS_ZNX_CSV, os.path.join(result_dir, MONTHLY_TIERS_ZNX_CSV))
+    
+    return result_dir
+
+def get_saved_results():
+    """Получить список сохраненных результатов"""
+    if not os.path.exists(SAVED_RESULTS_DIR):
+        return []
+    
+    results = []
+    for item in os.listdir(SAVED_RESULTS_DIR):
+        result_path = os.path.join(SAVED_RESULTS_DIR, item)
+        if os.path.isdir(result_path):
+            params_file = os.path.join(result_path, SAVED_PARAMS_FILE)
+            if os.path.exists(params_file):
+                try:
+                    with open(params_file, 'r', encoding='utf-8') as f:
+                        params = json.load(f)
+                    results.append({
+                        'name': item,
+                        'path': result_path,
+                        'params': params,
+                        'timestamp': params.get('timestamp', 'Unknown')
+                    })
+                except:
+                    continue
+    
+    return sorted(results, key=lambda x: x['name'], reverse=True)
+
+def load_saved_result(result_path):
+    """Загрузить сохраненный результат"""
+    import shutil
+    
+    # Загрузить CSV файлы
+    saved_daily = os.path.join(result_path, DAILY_CSV)
+    saved_monthly = os.path.join(result_path, MONTHLY_CSV)
+    saved_tiers = os.path.join(result_path, MONTHLY_TIERS_ZNX_CSV)
+    
+    if os.path.exists(saved_daily):
+        shutil.copy2(saved_daily, DAILY_CSV)
+    if os.path.exists(saved_monthly):
+        shutil.copy2(saved_monthly, MONTHLY_CSV)
+    if os.path.exists(saved_tiers):
+        shutil.copy2(saved_tiers, MONTHLY_TIERS_ZNX_CSV)
+
 st.set_page_config(page_title="RevShare Pool Dashboard", layout="wide")
 
 # Sidebar for data generation
 st.sidebar.title("🔧 Генерация данных")
 st.sidebar.info("ℹ️ Параметры ниже используются только для генерации новых данных. Дашборд отображает реальные данные из CSV файлов.")
+
+# Load saved results section
+st.sidebar.markdown("### 📂 Загрузить сохраненный результат")
+saved_results = get_saved_results()
+
+if saved_results:
+    result_names = [f"{result['name']} ({result['timestamp']})" for result in saved_results]
+    selected_result = st.sidebar.selectbox(
+        "🗂️ Выберите результат", 
+        options=["Не выбрано"] + result_names,
+        help="Выберите сохраненный результат для загрузки"
+    )
+    
+    if selected_result != "Не выбрано":
+        selected_index = result_names.index(selected_result)
+        selected_result_data = saved_results[selected_index]
+        
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            if st.button("📥 Загрузить", help="Загрузить выбранный результат"):
+                try:
+                    load_saved_result(selected_result_data['path'])
+                    load_data.clear()  # Clear cache to reload data
+                    st.sidebar.success(f"✅ Результат '{selected_result_data['name']}' загружен!")
+                    st.rerun()
+                except Exception as e:
+                    st.sidebar.error(f"❌ Ошибка загрузки: {str(e)}")
+        
+        with col2:
+            if st.button("🗑️ Удалить", help="Удалить выбранный результат"):
+                try:
+                    import shutil
+                    shutil.rmtree(selected_result_data['path'])
+                    st.sidebar.success(f"✅ Результат '{selected_result_data['name']}' удален!")
+                    st.rerun()
+                except Exception as e:
+                    st.sidebar.error(f"❌ Ошибка удаления: {str(e)}")
+        
+        # Show result info
+        if os.path.exists(os.path.join(selected_result_data['path'], SAVED_PARAMS_FILE)):
+            with open(os.path.join(selected_result_data['path'], SAVED_PARAMS_FILE), 'r', encoding='utf-8') as f:
+                params = json.load(f)
+            
+            st.sidebar.markdown("**📋 Параметры результата:**")
+            st.sidebar.markdown(f"• ZNX: {params.get('znx_amount', 'N/A'):,.0f}")
+            st.sidebar.markdown(f"• Курс: ${params.get('znx_rate', 'N/A'):.8f}")
+            st.sidebar.markdown(f"• Пул: ${params.get('pool_size', 'N/A'):,.2f}")
+            if 'stable_znx_amount' in params and 'growth_znx_amount' in params:
+                st.sidebar.markdown(f"• Stable: {params.get('stable_znx_amount', 'N/A'):,.0f} ZNX")
+                st.sidebar.markdown(f"• Growth: {params.get('growth_znx_amount', 'N/A'):,.0f} ZNX")
+            else:
+                st.sidebar.markdown(f"• Stable: {params.get('stable_ratio', 'N/A'):.1%}")
+            st.sidebar.markdown(f"• GGR: {params.get('target_ggr', 'N/A'):.1f}x")
+else:
+    st.sidebar.info("📭 Нет сохраненных результатов")
+
+st.sidebar.markdown("---")
 st.sidebar.markdown("### Параметры пула")
 
 # Pool parameters (only for data generation)
-pool_size = st.sidebar.number_input("💰 Размер пула ($)", min_value=10000, max_value=1000000, value=50000, step=5000, help="Используется только для генерации новых данных")
-stable_ratio = st.sidebar.slider("🔵 Stable пул (%)", min_value=0.1, max_value=0.9, value=0.5, step=0.05, help="Используется только для генерации новых данных")
-growth_ratio = 1.0 - stable_ratio
+znx_amount = st.sidebar.number_input("🪙 Количество собранных ZNX", min_value=1000.0, max_value=10000000.0, value=50000.0, step=1000.0, help="Количество ZNX токенов, собранных в пуле")
+znx_rate = st.sidebar.number_input("💱 Курс ZNX к USD", min_value=0.00000001, max_value=100.0, value=1.0, step=0.00000001, format="%.8f", help="Курс ZNX к доллару на момент окончания сбора (до 8 знаков после запятой)")
+
+# Calculate pool size in USD
+pool_size = znx_amount * znx_rate
+
+# Display pool size calculation
+st.sidebar.markdown("---")
+st.sidebar.markdown("**💰 Расчет размера пула:**")
+st.sidebar.markdown(f"• {znx_amount:,.0f} ZNX × ${znx_rate:.8f} = **${pool_size:,.2f}**")
+st.sidebar.markdown("---")
+
+# Ввод абсолютных количеств токенов для каждого пула
+stable_znx_amount = st.sidebar.number_input("🔵 Stable пул (ZNX)", min_value=0.0, max_value=znx_amount, value=znx_amount * 0.6, step=1000.0, help="Количество ZNX токенов в Stable пуле")
+growth_znx_amount = st.sidebar.number_input("🟢 Growth пул (ZNX)", min_value=0.0, max_value=znx_amount, value=znx_amount * 0.4, step=1000.0, help="Количество ZNX токенов в Growth пуле")
+
+# Проверка, что сумма не превышает общее количество
+total_allocated = stable_znx_amount + growth_znx_amount
+if total_allocated > znx_amount:
+    st.sidebar.error(f"⚠️ Сумма пулов ({total_allocated:,.0f}) превышает общее количество ZNX ({znx_amount:,.0f})")
+    st.sidebar.stop()
+
+# Расчет соотношений для совместимости с существующим кодом
+stable_ratio = stable_znx_amount / znx_amount if znx_amount > 0 else 0.0
+growth_ratio = growth_znx_amount / znx_amount if znx_amount > 0 else 0.0
+
+# Отображение информации о распределении
+st.sidebar.markdown("**📊 Распределение токенов:**")
+st.sidebar.markdown(f"• Stable: {stable_znx_amount:,.0f} ZNX ({stable_ratio:.1%})")
+st.sidebar.markdown(f"• Growth: {growth_znx_amount:,.0f} ZNX ({growth_ratio:.1%})")
+if total_allocated < znx_amount:
+    remaining = znx_amount - total_allocated
+    st.sidebar.markdown(f"• Остаток: {remaining:,.0f} ZNX ({remaining/znx_amount:.1%})")
+st.sidebar.markdown("---")
 
 # Date and target parameters
-from datetime import datetime, date
 start_date = st.sidebar.date_input("📅 Дата старта", value=date(2025, 11, 1), help="Используется только для генерации новых данных")
 target_ggr = st.sidebar.slider("🎯 Целевой GGR множитель", min_value=2.0, max_value=5.0, value=3.2, step=0.1, help="Используется только для генерации новых данных")
 ggr_volatility = st.sidebar.slider("📊 Волатильность GGR", min_value=0.05, max_value=0.30, value=0.15, step=0.01, help="Стандартное отклонение для ежедневных колебаний GGR. Используется только для генерации новых данных")
@@ -82,7 +241,7 @@ if generate_button:
         import time
         
         # Generate random seed based on current time and parameters
-        seed = int(time.time() * 1000) % 1000000 + hash(str(pool_size) + str(stable_ratio) + str(target_ggr)) % 1000
+        seed = int(time.time() * 1000) % 1000000 + hash(str(znx_amount) + str(znx_rate) + str(stable_ratio) + str(target_ggr)) % 1000
         random.seed(seed)
         np.random.seed(seed)
         
@@ -99,6 +258,11 @@ if generate_button:
             upfront_bonus_growth=upfront_bonus_growth / 100.0,
             ongoing_share_stable=ongoing_share_stable / 100.0,
             ongoing_share_growth=ongoing_share_growth / 100.0,
+            znx_price=znx_rate,
+            znx_amount=znx_amount,
+            znx_rate=znx_rate,
+            stable_znx_amount=stable_znx_amount,
+            growth_znx_amount=growth_znx_amount,
             start_date=start_date.strftime("%Y-%m-%d")
         )
         
@@ -119,6 +283,47 @@ if generate_button:
         load_data.clear()
         
         st.sidebar.success("✅ Данные сгенерированы!")
+        
+        # Add save functionality
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 💾 Сохранить результат")
+        save_name = st.sidebar.text_input("📝 Название результата", value=f"Результат_{datetime.now().strftime('%Y%m%d_%H%M')}", help="Введите название для сохранения результата")
+        
+        if st.sidebar.button("💾 Сохранить результат", help="Сохранить параметры генерации и CSV файлы"):
+            if save_name.strip():
+                # Prepare parameters for saving
+                generation_params = {
+                    'znx_amount': znx_amount,
+                    'znx_rate': znx_rate,
+                    'pool_size': pool_size,
+                    'stable_znx_amount': stable_znx_amount,
+                    'growth_znx_amount': growth_znx_amount,
+                    'stable_ratio': stable_ratio,
+                    'growth_ratio': growth_ratio,
+                    'start_date': start_date.strftime("%Y-%m-%d"),
+                    'target_ggr': target_ggr,
+                    'ggr_volatility': ggr_volatility,
+                    'referral_ratio': referral_ratio,
+                    'upfront_bonus_stable': upfront_bonus_stable,
+                    'upfront_bonus_growth': upfront_bonus_growth,
+                    'ongoing_share_stable': ongoing_share_stable,
+                    'ongoing_share_growth': ongoing_share_growth,
+                    'cpa_min': cpa_min,
+                    'cpa_max': cpa_max,
+                    'effective_cpa_min': effective_cpa_min,
+                    'effective_cpa_max': effective_cpa_max,
+                    'seed': seed,
+                    'generation_timestamp': datetime.now().isoformat()
+                }
+                
+                try:
+                    save_generation_result(generation_params, save_name.strip())
+                    st.sidebar.success(f"✅ Результат '{save_name.strip()}' сохранен!")
+                except Exception as e:
+                    st.sidebar.error(f"❌ Ошибка сохранения: {str(e)}")
+            else:
+                st.sidebar.error("❌ Введите название для сохранения")
+        
         st.rerun()
 
 # Custom CSS for better styling
@@ -203,6 +408,63 @@ st.title("💰 RevShare Pool Dashboard")
 st.markdown(f"### Анализ доходности пулов Zenex с размером ${real_pool_size:,.0f}")
 st.markdown(f"**🔵 Stable:** {real_stable_ratio:.0%} | **🟢 Growth:** {real_growth_ratio:.0%}")
 
+# Export functionality
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📤 Экспорт данных")
+
+if st.sidebar.button("📊 Скачать CSV файлы", help="Скачать все CSV файлы в ZIP архиве"):
+    import zipfile
+    import io
+    
+    # Create a ZIP file in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        # Add CSV files if they exist
+        if os.path.exists(DAILY_CSV):
+            zip_file.write(DAILY_CSV, DAILY_CSV)
+        if os.path.exists(MONTHLY_CSV):
+            zip_file.write(MONTHLY_CSV, MONTHLY_CSV)
+        if os.path.exists(MONTHLY_TIERS_ZNX_CSV):
+            zip_file.write(MONTHLY_TIERS_ZNX_CSV, MONTHLY_TIERS_ZNX_CSV)
+    
+    zip_buffer.seek(0)
+    
+    st.sidebar.download_button(
+        label="💾 Скачать ZIP архив",
+        data=zip_buffer.getvalue(),
+        file_name=f"revshare_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+        mime="application/zip",
+        help="Скачать все CSV файлы в ZIP архиве"
+    )
+
+# Individual file downloads
+if os.path.exists(DAILY_CSV):
+    with open(DAILY_CSV, 'rb') as f:
+        st.sidebar.download_button(
+            label="📈 Скачать Daily CSV",
+            data=f.read(),
+            file_name=DAILY_CSV,
+            mime="text/csv"
+        )
+
+if os.path.exists(MONTHLY_CSV):
+    with open(MONTHLY_CSV, 'rb') as f:
+        st.sidebar.download_button(
+            label="📅 Скачать Monthly CSV",
+            data=f.read(),
+            file_name=MONTHLY_CSV,
+            mime="text/csv"
+        )
+
+if os.path.exists(MONTHLY_TIERS_ZNX_CSV):
+    with open(MONTHLY_TIERS_ZNX_CSV, 'rb') as f:
+        st.sidebar.download_button(
+            label="🎯 Скачать Tiers CSV",
+            data=f.read(),
+            file_name=MONTHLY_TIERS_ZNX_CSV,
+            mime="text/csv"
+        )
+
 # Cumulative summary metrics at the top
 st.subheader("💼 Совокупные показатели")
 total_collected = real_pool_size
@@ -216,16 +478,56 @@ total_cash_paid = total_stable_payout + total_growth_payout
 final_ggr = float(daily_df["cumulative_ggr"].iloc[-1])
 ggr_multiplier = final_ggr / total_collected if total_collected > 0 else 0
 
-col_summary1, col_summary2, col_summary3, col_summary4 = st.columns(4)
+# Calculate referral costs
+total_referral_cost = float(monthly_df["monthly_referral_cost"].sum()) if "monthly_referral_cost" in monthly_df.columns else 0
+
+# Calculate total payments (investments + referrals)
+total_payments = total_cash_paid + total_referral_cost
+
+# Calculate cost of capital
+cost_of_capital = (total_payments / total_collected) * 100 if total_collected > 0 else 0
+
+col_summary1, col_summary2, col_summary3, col_summary4, col_summary5 = st.columns(5)
 with col_summary1:
     st.metric("💰 Собрано", f"${total_collected:,.0f}", delta="Общий размер пула")
 with col_summary2:
     st.metric("💸 Cash выплаты", f"${total_cash_paid:,.0f}", delta="Только денежные выплаты")
 with col_summary3:
+    st.metric("🤝 Реферальные", f"${total_referral_cost:,.0f}", delta="Реферальные расходы")
+with col_summary4:
     color_indicator = "🟢" if ggr_multiplier >= 3.0 else "🟡" if ggr_multiplier >= 2.5 else "🔴"
     st.metric(f"{color_indicator} GGR множитель", f"{ggr_multiplier:.2f}x", delta="Эффективность пула")
-with col_summary4:
-    st.metric("✅ Корректировка", "$0", delta="Доплата не требуется")
+with col_summary5:
+    cost_color = "🟢" if cost_of_capital <= 50 else "🟡" if cost_of_capital <= 75 else "🔴"
+    st.metric(f"{cost_color} Стоимость капитала", f"{cost_of_capital:.1f}%", delta="Общие выплаты/Сбор")
+
+# Cost of Capital breakdown
+st.subheader("💹 Анализ стоимости капитала")
+col_cost1, col_cost2, col_cost3 = st.columns(3)
+
+with col_cost1:
+    investment_ratio = (total_cash_paid / total_collected) * 100 if total_collected > 0 else 0
+    st.metric("📊 Инвестиционные выплаты", f"{investment_ratio:.1f}%", delta=f"${total_cash_paid:,.0f}")
+
+with col_cost2:
+    referral_ratio = (total_referral_cost / total_collected) * 100 if total_collected > 0 else 0
+    st.metric("🤝 Реферальные расходы", f"{referral_ratio:.1f}%", delta=f"${total_referral_cost:,.0f}")
+
+with col_cost3:
+    total_ratio = (total_payments / total_collected) * 100 if total_collected > 0 else 0
+    st.metric("💰 Общая стоимость", f"{total_ratio:.1f}%", delta=f"${total_payments:,.0f}")
+
+# Cost of capital explanation
+st.info(f"""
+**📈 Стоимость капитала: {cost_of_capital:.1f}%**
+
+Это показатель того, сколько процентов от собранных средств составляют все выплаты:
+- **Инвестиционные выплаты**: {investment_ratio:.1f}% (${total_cash_paid:,.0f})
+- **Реферальные расходы**: {referral_ratio:.1f}% (${total_referral_cost:,.0f})
+- **Общие выплаты**: {total_ratio:.1f}% (${total_payments:,.0f})
+
+Формула: (Общие выплаты / Собранные средства) × 100%
+""")
 
 st.markdown("---")
 
