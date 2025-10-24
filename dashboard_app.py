@@ -132,7 +132,7 @@ if saved_results:
             if st.button("📥 Загрузить", help="Загрузить выбранный результат"):
                 try:
                     load_saved_result(selected_result_data['path'])
-                    load_data.clear()  # Clear cache to reload data
+                    st.cache_data.clear()  # Clear cache to reload data
                     st.sidebar.success(f"✅ Результат '{selected_result_data['name']}' загружен!")
                     st.rerun()
                 except Exception as e:
@@ -154,15 +154,25 @@ if saved_results:
                 params = json.load(f)
             
             st.sidebar.markdown("**📋 Параметры результата:**")
-            st.sidebar.markdown(f"• ZNX: {params.get('znx_amount', 'N/A'):,.0f}")
-            st.sidebar.markdown(f"• Курс: ${params.get('znx_rate', 'N/A'):.8f}")
-            st.sidebar.markdown(f"• Пул: ${params.get('pool_size', 'N/A'):,.2f}")
+            znx_amount = params.get('znx_amount', 0)
+            znx_rate = params.get('znx_rate', 0)
+            pool_size = params.get('pool_size', 0)
+            target_ggr = params.get('target_ggr', 0)
+            
+            st.sidebar.markdown(f"• ZNX: {znx_amount:,.0f}" if isinstance(znx_amount, (int, float)) else "• ZNX: N/A")
+            st.sidebar.markdown(f"• Курс: ${znx_rate:.8f}" if isinstance(znx_rate, (int, float)) else "• Курс: N/A")
+            st.sidebar.markdown(f"• Пул: ${pool_size:,.2f}" if isinstance(pool_size, (int, float)) else "• Пул: N/A")
+            
             if 'stable_znx_amount' in params and 'growth_znx_amount' in params:
-                st.sidebar.markdown(f"• Stable: {params.get('stable_znx_amount', 'N/A'):,.0f} ZNX")
-                st.sidebar.markdown(f"• Growth: {params.get('growth_znx_amount', 'N/A'):,.0f} ZNX")
+                stable_znx = params.get('stable_znx_amount', 0)
+                growth_znx = params.get('growth_znx_amount', 0)
+                st.sidebar.markdown(f"• Stable: {stable_znx:,.0f} ZNX" if isinstance(stable_znx, (int, float)) else "• Stable: N/A")
+                st.sidebar.markdown(f"• Growth: {growth_znx:,.0f} ZNX" if isinstance(growth_znx, (int, float)) else "• Growth: N/A")
             else:
-                st.sidebar.markdown(f"• Stable: {params.get('stable_ratio', 'N/A'):.1%}")
-            st.sidebar.markdown(f"• GGR: {params.get('target_ggr', 'N/A'):.1f}x")
+                stable_ratio = params.get('stable_ratio', 0)
+                st.sidebar.markdown(f"• Stable: {stable_ratio:.1%}" if isinstance(stable_ratio, (int, float)) else "• Stable: N/A")
+            
+            st.sidebar.markdown(f"• Target GGR: {target_ggr:.1f}x" if isinstance(target_ggr, (int, float)) else "• Target GGR: N/A")
 else:
     st.sidebar.info("📭 Нет сохраненных результатов")
 
@@ -192,18 +202,7 @@ start_date = st.sidebar.date_input("📅 Дата старта", value=date(2025
 target_ggr = st.sidebar.slider("🎯 Целевой GGR множитель", min_value=2.0, max_value=5.0, value=3.2, step=0.1, help="Используется только для генерации новых данных")
 ggr_volatility = st.sidebar.slider("📊 Волатильность GGR", min_value=0.05, max_value=0.30, value=0.15, step=0.01, help="Стандартное отклонение для ежедневных колебаний GGR. Используется только для генерации новых данных")
 
-# Referral parameters
-st.sidebar.markdown("### 🤝 Реферальная программа")
-referral_ratio = st.sidebar.slider("👥 Доля реферальных денег в пуле (%)", min_value=0.0, max_value=50.0, value=15.0, step=5.0, help="Процент инвесторов, пришедших по реферальным ссылкам")
-
-# Simplified bonus parameters
-st.sidebar.markdown("#### 🎁 Бонусы")
-upfront_bonus_stable = st.sidebar.slider("💰 Моментальный бонус (%)", min_value=1.0, max_value=5.0, value=3.0, step=0.5, help="Моментальный бонус от инвестиции")
-ongoing_share_stable = st.sidebar.slider("📈 Постоянный бонус Stable (%)", min_value=2.0, max_value=6.0, value=4.0, step=1.0, help="Постоянный бонус от месячной прибыли Stable пула")
-ongoing_share_growth = st.sidebar.select_slider("📈 Постоянный бонус Growth (%)", options=[10, 12, 15, 18, 20], value=15, help="Постоянный бонус от месячной прибыли Growth пула")
-
-# Set growth upfront bonus same as stable for compatibility
-upfront_bonus_growth = upfront_bonus_stable
+# Traffic parameters section moved up
 
 
 # Traffic parameters
@@ -211,19 +210,20 @@ st.sidebar.markdown("### Трафик")
 cpa_min = st.sidebar.number_input("💸 CPA мин ($)", min_value=10, max_value=500, value=50, step=5, help="Базовая стоимость привлечения клиента (без учета реферальных расходов)")
 cpa_max = st.sidebar.number_input("💸 CPA макс ($)", min_value=cpa_min, max_value=1000, value=150, step=5, help="Максимальная стоимость привлечения клиента (без учета реферальных расходов)")
 
-# Calculate effective CPA ranges including referral costs
-if referral_ratio > 0:
-    # Referral costs reduce available traffic budget
-    referral_cost_factor = 1 + (referral_ratio / 100) * 0.1  # 10% additional cost per referral
-    effective_cpa_min = cpa_min * referral_cost_factor
-    effective_cpa_max = cpa_max * referral_cost_factor
-    
-    st.sidebar.markdown(f"**Эффективный CPA с рефералкой:**")
-    st.sidebar.markdown(f"• Мин: ${effective_cpa_min:.1f} (+{((referral_cost_factor-1)*100):.1f}%)")
-    st.sidebar.markdown(f"• Макс: ${effective_cpa_max:.1f} (+{((referral_cost_factor-1)*100):.1f}%)")
-else:
-    effective_cpa_min = cpa_min
-    effective_cpa_max = cpa_max
+st.sidebar.markdown("### Реферальная система")
+referral_ratio = st.sidebar.slider("👥 Доля рефералов", min_value=0.0, max_value=1.0, value=0.3, step=0.05, help="Доля депозитов от рефералов")
+upfront_bonus_stable = st.sidebar.number_input("💰 Бонус за депозит Stable ($)", min_value=0.0, max_value=100.0, value=10.0, step=1.0, help="Моментальная выплата за депозит реферала в Stable пул")
+upfront_bonus_growth = st.sidebar.number_input("💰 Бонус за депозит Growth ($)", min_value=0.0, max_value=100.0, value=15.0, step=1.0, help="Моментальная выплата за депозит реферала в Growth пул")
+ongoing_share_stable = st.sidebar.slider("📊 % с выплат Stable", min_value=0.0, max_value=0.5, value=0.05, step=0.01, help="Процент с каждой выплаты Stable пула")
+ongoing_share_growth = st.sidebar.slider("📊 % с выплат Growth", min_value=0.0, max_value=0.5, value=0.08, step=0.01, help="Процент с каждой выплаты Growth пула")
+
+# Calculate effective CPA with referral costs
+upfront_referral_stable = referral_ratio * upfront_bonus_stable
+upfront_referral_growth = referral_ratio * upfront_bonus_growth
+total_upfront_referral = upfront_referral_stable + upfront_referral_growth
+
+effective_cpa_min = cpa_min + total_upfront_referral
+effective_cpa_max = cpa_max + total_upfront_referral
 
 # Data loading function (defined before generation logic)
 @st.cache_data(show_spinner=False)
@@ -244,7 +244,7 @@ if generate_button:
         import time
         
         # Generate random seed based on current time and parameters
-        seed = int(time.time() * 1000) % 1000000 + hash(str(znx_amount) + str(znx_rate) + str(stable_ratio) + str(target_ggr)) % 1000
+        seed = int(time.time() * 1000) % 1000000 + hash(str(pool_size) + str(stable_ratio) + str(target_ggr)) % 1000
         random.seed(seed)
         np.random.seed(seed)
         
@@ -256,17 +256,13 @@ if generate_button:
             cpa_range=(effective_cpa_min, effective_cpa_max),
             target_ggr_multiplier=target_ggr,
             ggr_volatility=ggr_volatility,
-            referral_ratio=referral_ratio / 100.0,  # Convert percentage to decimal
-            upfront_bonus_stable=upfront_bonus_stable / 100.0,
-            upfront_bonus_growth=upfront_bonus_growth / 100.0,
-            ongoing_share_stable=ongoing_share_stable / 100.0,
-            ongoing_share_growth=ongoing_share_growth / 100.0,
-            znx_price=znx_rate,
-            znx_amount=znx_amount,
-            znx_rate=znx_rate,
-            stable_znx_amount=stable_znx_amount,
-            growth_znx_amount=growth_znx_amount,
-            start_date=start_date.strftime("%Y-%m-%d")
+            start_date=start_date.strftime("%Y-%m-%d"),
+            referral_ratio=referral_ratio,
+            upfront_bonus_stable=upfront_bonus_stable,
+            upfront_bonus_growth=upfront_bonus_growth,
+            ongoing_share_stable=ongoing_share_stable,
+            ongoing_share_growth=ongoing_share_growth,
+            seed=seed
         )
         
         # Calibrate to target GGR multiplier
@@ -277,13 +273,13 @@ if generate_button:
         monthly_data = generator.get_monthly_summary(daily_data)
         monthly_tiers_data = generator.get_monthly_tier_payouts_per_znx(daily_data)
         
-        # Save to CSV files
+        # Save data to CSV files
         daily_data.to_csv(DAILY_CSV, index=False)
         monthly_data.to_csv(MONTHLY_CSV, index=False)
         monthly_tiers_data.to_csv(MONTHLY_TIERS_ZNX_CSV, index=False)
         
-        # Clear cache to force data reload
-        load_data.clear()
+        # Clear cache to reload data
+        st.cache_data.clear()
         
         st.sidebar.success("✅ Данные сгенерированы!")
         
@@ -306,15 +302,15 @@ if generate_button:
                     'start_date': start_date.strftime("%Y-%m-%d"),
                     'target_ggr': target_ggr,
                     'ggr_volatility': ggr_volatility,
+                    'cpa_min': cpa_min,
+                    'cpa_max': cpa_max,
+                    'effective_cpa_min': effective_cpa_min,
+                    'effective_cpa_max': effective_cpa_max,
                     'referral_ratio': referral_ratio,
                     'upfront_bonus_stable': upfront_bonus_stable,
                     'upfront_bonus_growth': upfront_bonus_growth,
                     'ongoing_share_stable': ongoing_share_stable,
                     'ongoing_share_growth': ongoing_share_growth,
-                    'cpa_min': cpa_min,
-                    'cpa_max': cpa_max,
-                    'effective_cpa_min': effective_cpa_min,
-                    'effective_cpa_max': effective_cpa_max,
                     'seed': seed,
                     'generation_timestamp': datetime.now().isoformat()
                 }

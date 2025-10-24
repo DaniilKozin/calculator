@@ -18,65 +18,7 @@ class TierConfig:
     capital_shares: Tuple[float, float, float]
 
 
-@dataclass
-class PartnerStatus:
-    """Накопительная система статусов партнеров"""
-    name: str
-    min_active_referrals: int
-    min_znx_investment: float
-    commission_rate: float  # Процент от месячного оборота рефералов
-    
-    @classmethod
-    def get_all_statuses(cls) -> List['PartnerStatus']:
-        return [
-            cls("ASSOCIATE", 5, 2500, 0.0),  # Базовый статус без комиссии
-            cls("PARTNER", 15, 7500, 0.0),   # Партнер без комиссии
-            cls("EXECUTIVE", 35, 20000, 0.25),  # 0.25% от оборота 50,001-150,000 EUR
-            cls("ELITE", 75, 50000, 0.30),      # 0.30% от оборота 150,001-500,000 EUR
-            cls("AMBASSADOR", 150, 100000, 0.40) # 0.40% от оборота 500,001+ EUR
-        ]
-    
-    @classmethod
-    def calculate_status(cls, active_referrals: int, znx_investment: float) -> 'PartnerStatus':
-        """Определяет статус по лучшему показателю (рефералы ИЛИ инвестиции)"""
-        statuses = cls.get_all_statuses()
-        
-        # Проверяем статусы от высшего к низшему
-        for status in reversed(statuses):
-            if (active_referrals >= status.min_active_referrals or 
-                znx_investment >= status.min_znx_investment):
-                return status
-        
-        # Если не подходит ни один статус, возвращаем базовый
-        return statuses[0]
 
-
-@dataclass
-class ReferralTurnoverTier:
-    """Тарифы для реферальных выплат по месячному обороту"""
-    name: str
-    min_turnover: float  # EUR
-    max_turnover: float  # EUR
-    commission_rate: float  # Процент от оборота
-    
-    @classmethod
-    def get_turnover_tiers(cls) -> List['ReferralTurnoverTier']:
-        return [
-            cls("EXECUTIVE", 50001, 150000, 0.25),
-            cls("ELITE", 150001, 500000, 0.30),
-            cls("AMBASSADOR", 500001, float('inf'), 0.40)
-        ]
-    
-    @classmethod
-    def get_commission_rate(cls, monthly_turnover_eur: float) -> float:
-        """Возвращает процент комиссии для данного оборота"""
-        tiers = cls.get_turnover_tiers()
-        
-        for tier in tiers:
-            if tier.min_turnover <= monthly_turnover_eur <= tier.max_turnover:
-                return tier.commission_rate / 100.0  # Конвертируем в десятичную дробь
-        
-        return 0.0  # Если оборот меньше минимального порога
 
 
 class RevSharePoolGenerator:
@@ -91,31 +33,16 @@ class RevSharePoolGenerator:
         start_date: str = "2025-11-01",
         cpa_range: Tuple[float, float] = (55, 75),
         target_ggr_multiplier: float = 3.0,
-        referral_pct_of_ggr: float = 0.05,
         ggr_volatility: float = 0.15,
-        # Referral parameters - обновленные параметры
-        referral_ratio: float = 0.0,
-        # Новые параметры для Stable и Growth Pool
-        stable_investment_bonus: Tuple[float, float] = (1.0, 5.0),  # 1-5% от инвестиции
-        stable_profit_bonus: Tuple[float, float] = (2.0, 6.0),     # 2-6% от месячной прибыли
-        growth_investment_bonus: Tuple[float, float] = (1.0, 5.0),  # 1-5% от инвестиции
-        growth_profit_bonus: Tuple[float, float] = (10.0, 20.0),   # 10-20% от месячной прибыли
-        # Старые параметры для совместимости (deprecated)
-        upfront_bonus_stable: float = 0.03,
-        upfront_bonus_growth: float = 0.03,
-        ongoing_share_stable: float = 0.04,
-        ongoing_share_growth: float = 0.15,
-        # ZNX price parameter
-        znx_price: float = 1.0,
-        znx_amount: Optional[float] = None,
-        znx_rate: Optional[float] = None,
-        # Absolute token amounts (alternative to ratios)
-        stable_znx_amount: Optional[float] = None,
-        growth_znx_amount: Optional[float] = None,
-        # Параметры для симуляции реферальных оборотов
-        avg_monthly_turnover_eur: float = 100000,  # Средний месячный оборот рефералов в EUR
-        turnover_volatility: float = 0.3,  # Волатильность оборота
+        # Enhanced retention model
+        use_enhanced_retention: bool = True,  # Использовать улучшенную модель retention
         seed: Optional[int] = None,
+        # Referral system parameters
+        referral_ratio: float = 0.15,  # 15% of investors come through referrals
+        upfront_bonus_stable: float = 0.03,  # 3% upfront bonus for stable pool
+        upfront_bonus_growth: float = 0.03,  # 3% upfront bonus for growth pool
+        ongoing_share_stable: float = 0.04,  # 4% ongoing share from stable pool profits
+        ongoing_share_growth: float = 0.15   # 15% ongoing share from growth pool profits
     ) -> None:
         if traffic_budget is None:
             traffic_budget = pool_size
@@ -136,63 +63,20 @@ class RevSharePoolGenerator:
         self.target_ggr_multiplier = float(target_ggr_multiplier)
         self.start_date = datetime.strptime(start_date, "%Y-%m-%d")
         self.seed = seed
-        self.referral_pct_of_ggr = float(referral_pct_of_ggr)
         self.ggr_volatility = float(ggr_volatility)
         
-        # Referral system parameters - новая система
+        # Enhanced retention model
+        self.use_enhanced_retention = bool(use_enhanced_retention)
+        
+        # Referral system parameters
         self.referral_ratio = float(referral_ratio)
-        self.stable_investment_bonus = stable_investment_bonus
-        self.stable_profit_bonus = stable_profit_bonus
-        self.growth_investment_bonus = growth_investment_bonus
-        self.growth_profit_bonus = growth_profit_bonus
-        
-        # Параметры для симуляции оборотов
-        self.avg_monthly_turnover_eur = float(avg_monthly_turnover_eur)
-        self.turnover_volatility = float(turnover_volatility)
-        
-        # Старые параметры для обратной совместимости
         self.upfront_bonus_stable = float(upfront_bonus_stable)
         self.upfront_bonus_growth = float(upfront_bonus_growth)
         self.ongoing_share_stable = float(ongoing_share_stable)
         self.ongoing_share_growth = float(ongoing_share_growth)
         
-        self.znx_price = float(znx_price)
-        self.znx_amount = znx_amount
-        self.znx_rate = znx_rate
-        
-        # Handle absolute token amounts if provided
-        if stable_znx_amount is not None and growth_znx_amount is not None:
-            if znx_amount is None:
-                raise ValueError("znx_amount must be provided when using absolute token amounts")
-            
-            total_allocated = stable_znx_amount + growth_znx_amount
-            if total_allocated > znx_amount:
-                raise ValueError(f"Total allocated tokens ({total_allocated}) exceeds total ZNX amount ({znx_amount})")
-            
-            # Recalculate ratios based on absolute amounts
-            self.stable_ratio = float(stable_znx_amount / znx_amount) if znx_amount > 0 else 0.0
-            self.growth_ratio = float(growth_znx_amount / znx_amount) if znx_amount > 0 else 0.0
-            
-            # Store absolute amounts
-            self.stable_znx_amount = float(stable_znx_amount)
-            self.growth_znx_amount = float(growth_znx_amount)
-        else:
-            # Use provided ratios and calculate absolute amounts if znx_amount is available
-            if znx_amount is not None:
-                self.stable_znx_amount = float(znx_amount * stable_ratio)
-                self.growth_znx_amount = float(znx_amount * growth_ratio)
-            else:
-                self.stable_znx_amount = None
-                self.growth_znx_amount = None
-        
-        # Calculate upfront referral costs (используем старую систему для совместимости)
-        referred_capital = self.pool_size * self.referral_ratio
-        upfront_cost_stable = referred_capital * self.stable_ratio * self.upfront_bonus_stable
-        upfront_cost_growth = referred_capital * self.growth_ratio * self.upfront_bonus_growth
-        self.total_upfront_referral = upfront_cost_stable + upfront_cost_growth
-        
-        # Reduce traffic budget by upfront referral costs
-        self.effective_traffic_budget = self.traffic_budget - self.total_upfront_referral
+        # Set effective traffic budget
+        self.effective_traffic_budget = self.traffic_budget
 
         if seed is not None:
             random.seed(seed)
@@ -246,6 +130,14 @@ class RevSharePoolGenerator:
             (271, 300): 125, (301, 330): 129, (331, 365): 132,
         }
         self.znx_price = 0.60
+        
+        # Calculate referral costs
+        self.stable_pool_size = self.pool_size * self.stable_ratio
+        self.growth_pool_size = self.pool_size * self.growth_ratio
+        
+        # Upfront referral costs (paid immediately)
+        self.upfront_referral_stable = self.stable_pool_size * self.referral_ratio * self.upfront_bonus_stable
+        self.upfront_referral_growth = self.growth_pool_size * self.referral_ratio * self.upfront_bonus_growth
 
         # Tunable calibration scales
         self._deposit_scale = 1.0
@@ -288,6 +180,172 @@ class RevSharePoolGenerator:
         delta = random.uniform(-var, var)
         return max(0.0, min(1.0, adj + delta))
 
+    def _get_enhanced_retention_rate(self, age_days: int, date: datetime, cohort_size: int) -> float:
+        """
+        Улучшенная модель retention с учетом:
+        - VIP игроков (5-10% от когорты)
+        - Всплесков активности (праздники, акции)
+        - Реактивации неактивных игроков
+        - Неравномерного затухания
+        """
+        # Базовый retention rate
+        base_retention = self._get_retention_rate(age_days)
+        
+        # VIP игроки - 5-10% от когорты с повышенным retention
+        vip_percentage = random.uniform(0.05, 0.10)
+        vip_players = int(cohort_size * vip_percentage)
+        regular_players = cohort_size - vip_players
+        
+        # VIP retention (в 2-3 раза выше базового)
+        vip_retention_multiplier = random.uniform(2.0, 3.0) if age_days > 30 else 1.0
+        vip_retention = min(1.0, base_retention * vip_retention_multiplier)
+        
+        # Всплески активности
+        activity_boost = self._calculate_activity_boost(date, age_days)
+        boosted_retention = min(1.0, base_retention * activity_boost)
+        
+        # Реактивация неактивных игроков (случайные возвраты)
+        reactivation_chance = self._calculate_reactivation_chance(age_days, date)
+        
+        # Комбинированный retention
+        if vip_players > 0:
+            # Взвешенное среднее VIP и обычных игроков
+            combined_retention = (
+                (vip_players * vip_retention + regular_players * boosted_retention) / cohort_size
+            )
+        else:
+            combined_retention = boosted_retention
+            
+        # Добавляем реактивацию
+        final_retention = min(1.0, combined_retention + reactivation_chance)
+        
+        return final_retention
+
+    def _calculate_activity_boost(self, date: datetime, age_days: int) -> float:
+        """
+        Рассчитывает всплески активности от событий:
+        - Праздники и выходные
+        - Сезонные акции
+        - Новые игры/турниры
+        - Персональные бонусы
+        """
+        boost = 1.0
+        m, d, wd = date.month, date.day, date.weekday()
+        
+        # Праздничные всплески (сильнее влияют на старых игроков)
+        holiday_multiplier = 1.0 + (age_days / 365.0) * 0.5  # Старые игроки больше реагируют
+        
+        if (m == 12 and 20 <= d <= 31):  # Новый год
+            boost *= (1.25 * holiday_multiplier)
+        elif (m == 1 and 1 <= d <= 10):  # Новогодние каникулы
+            boost *= (1.20 * holiday_multiplier)
+        elif (m == 2 and d == 14):  # День святого Валентина
+            boost *= (1.15 * holiday_multiplier)
+        elif m in [6, 7]:  # Летние турниры
+            boost *= (1.18 * holiday_multiplier)
+        elif (m == 11 and 20 <= d <= 30):  # Black Friday
+            boost *= (1.22 * holiday_multiplier)
+            
+        # Выходные (больше времени на игры)
+        if wd in [5, 6]:  # Суббота, воскресенье
+            boost *= 1.12
+            
+        # Конец месяца (зарплата, бонусы)
+        if 25 <= d <= 31:
+            boost *= 1.08
+            
+        # Случайные акции и турниры (5% шанс каждый день)
+        if random.random() < 0.05:
+            boost *= random.uniform(1.10, 1.30)
+            
+        # Персональные предложения для старых игроков (возрастает с возрастом)
+        if age_days > 60 and random.random() < (age_days / 1000.0):
+            boost *= random.uniform(1.15, 1.40)
+            
+        return boost
+
+    def _calculate_reactivation_chance(self, age_days: int, date: datetime) -> float:
+        """
+        Рассчитывает шанс реактивации неактивных игроков:
+        - Email кампании
+        - Push уведомления
+        - Персональные бонусы
+        - Новые игры
+        """
+        if age_days <= 30:
+            return 0.0  # Новые игроки не нуждаются в реактивации
+            
+        base_reactivation = 0.0
+        
+        # Базовый шанс реактивации (уменьшается с возрастом)
+        if 30 < age_days <= 90:
+            base_reactivation = 0.03  # 3% шанс
+        elif 90 < age_days <= 180:
+            base_reactivation = 0.02  # 2% шанс
+        elif 180 < age_days <= 270:
+            base_reactivation = 0.015  # 1.5% шанс
+        else:
+            base_reactivation = 0.01  # 1% шанс
+            
+        # Сезонные кампании реактивации
+        m = date.month
+        if m in [12, 1]:  # Новогодние кампании
+            base_reactivation *= 2.0
+        elif m in [6, 7, 8]:  # Летние кампании
+            base_reactivation *= 1.5
+        elif m == 11:  # Black Friday кампании
+            base_reactivation *= 1.8
+            
+        # Случайные email/push кампании (10% шанс каждый день)
+        if random.random() < 0.10:
+            base_reactivation *= random.uniform(1.5, 2.5)
+            
+        return base_reactivation
+        
+    def _generate_monthly_turnover(self, year: int, month: int) -> float:
+        """
+        Генерирует месячный оборот для расчета комиссий с оборота.
+        Базируется на активности игроков и их депозитах.
+        """
+        # Базовый оборот как процент от месячных депозитов
+        base_turnover_multiplier = random.uniform(8.0, 15.0)  # 8-15x от депозитов
+        
+        # Сезонные корректировки
+        seasonal_multiplier = 1.0
+        if month in [12, 1]:  # Новогодние праздники
+            seasonal_multiplier = random.uniform(1.2, 1.5)
+        elif month in [6, 7, 8]:  # Летний сезон
+            seasonal_multiplier = random.uniform(1.1, 1.3)
+        elif month == 11:  # Black Friday
+            seasonal_multiplier = random.uniform(1.15, 1.4)
+        elif month in [2, 9]:  # Низкие месяцы
+            seasonal_multiplier = random.uniform(0.8, 0.95)
+            
+        # Примерный месячный оборот (будет скорректирован на основе реальных депозитов)
+        estimated_monthly_deposits = self.pool_size * 0.1  # 10% от пула в месяц
+        monthly_turnover = estimated_monthly_deposits * base_turnover_multiplier * seasonal_multiplier
+        
+        return monthly_turnover
+        
+    def _calculate_new_referral_costs(self, stable_payout: float, growth_payout: float, monthly_turnover: float) -> Tuple[float, float, float]:
+        """
+        Рассчитывает новые реферальные расходы на основе:
+        1. Процента от прибыли stable и growth пулов
+        2. Комиссии с оборота
+        
+        Returns:
+            Tuple of (stable_referral_cost, growth_referral_cost, turnover_commission)
+        """
+        # Процент от прибыли пулов
+        stable_ref_cost = stable_payout * self.ongoing_share_stable
+        growth_ref_cost = growth_payout * self.ongoing_share_growth
+        
+        # Комиссия с оборота (0.5-1.5% от оборота)
+        turnover_commission_rate = random.uniform(0.005, 0.015)
+        turnover_commission = monthly_turnover * turnover_commission_rate
+        
+        return stable_ref_cost, growth_ref_cost, turnover_commission
+
     def _calculate_seasonality(self, date: datetime) -> float:
         mult = 1.0
         m, d, wd = date.month, date.day, date.weekday()  # 0=Mon
@@ -311,66 +369,7 @@ class RevSharePoolGenerator:
             mult *= 1.12
         return mult
 
-    def _generate_monthly_turnover(self, year: int, month: int) -> float:
-        """Генерирует месячный оборот рефералов в EUR с учетом волатильности"""
-        if self.referral_ratio <= 0:
-            return 0.0
-        
-        # Базовый оборот с учетом сезонности
-        base_turnover = self.avg_monthly_turnover_eur
-        
-        # Добавляем волатильность
-        volatility_factor = np.random.normal(1.0, self.turnover_volatility)
-        volatility_factor = max(0.1, volatility_factor)  # Минимум 10% от базового
-        
-        # Сезонность (декабрь и январь - больше активности)
-        seasonal_factor = 1.0
-        if month in [12, 1]:
-            seasonal_factor = 1.2
-        elif month in [6, 7, 8]:  # Летние месяцы - меньше активности
-            seasonal_factor = 0.8
-        
-        monthly_turnover = base_turnover * volatility_factor * seasonal_factor
-        return max(0.0, monthly_turnover)
 
-    def _calculate_new_referral_costs(self, monthly_stable_payout: float, monthly_growth_payout: float, 
-                                    monthly_turnover_eur: float) -> Tuple[float, float, float]:
-        """
-        Рассчитывает реферальные выплаты по новой системе
-        
-        Returns:
-            Tuple[stable_referral_cost, growth_referral_cost, turnover_commission]
-        """
-        if self.referral_ratio <= 0:
-            return 0.0, 0.0, 0.0
-        
-        # Расчет бонусов от инвестиций (единовременно в первый месяц)
-        stable_pool_size = self.pool_size * self.stable_ratio
-        growth_pool_size = self.pool_size * self.growth_ratio
-        
-        # Бонусы от инвестиций (используем средние значения диапазонов)
-        stable_inv_bonus_rate = (self.stable_investment_bonus[0] + self.stable_investment_bonus[1]) / 2 / 100
-        growth_inv_bonus_rate = (self.growth_investment_bonus[0] + self.growth_investment_bonus[1]) / 2 / 100
-        
-        stable_investment_bonus = stable_pool_size * self.referral_ratio * stable_inv_bonus_rate
-        growth_investment_bonus = growth_pool_size * self.referral_ratio * growth_inv_bonus_rate
-        
-        # Бонусы от месячной прибыли (используем средние значения диапазонов)
-        stable_profit_bonus_rate = (self.stable_profit_bonus[0] + self.stable_profit_bonus[1]) / 2 / 100
-        growth_profit_bonus_rate = (self.growth_profit_bonus[0] + self.growth_profit_bonus[1]) / 2 / 100
-        
-        stable_profit_bonus = monthly_stable_payout * stable_profit_bonus_rate
-        growth_profit_bonus = monthly_growth_payout * growth_profit_bonus_rate
-        
-        # Комиссия от оборота рефералов
-        turnover_commission_rate = ReferralTurnoverTier.get_commission_rate(monthly_turnover_eur)
-        turnover_commission = monthly_turnover_eur * turnover_commission_rate
-        
-        # Общие реферальные расходы
-        total_stable_referral = stable_investment_bonus + stable_profit_bonus
-        total_growth_referral = growth_investment_bonus + growth_profit_bonus
-        
-        return total_stable_referral, total_growth_referral, turnover_commission
 
     def _get_avg_deposit(self, age_days: int, date: datetime) -> float:
         base = self._range_value(self.deposit_by_days, age_days) * self._deposit_scale
@@ -433,7 +432,18 @@ class RevSharePoolGenerator:
             total_deposits = 0.0
             for ftd_day in range(1, min(day, 30) + 1):
                 age = day - ftd_day + 1
-                cohort_players = round(ftd_map.get(ftd_day, 0) * self._get_retention_rate(age))
+                cohort_size = ftd_map.get(ftd_day, 0)
+                
+                if cohort_size <= 0:
+                    continue
+                    
+                # Выбираем модель retention
+                if self.use_enhanced_retention:
+                    retention_rate = self._get_enhanced_retention_rate(age, date, cohort_size)
+                else:
+                    retention_rate = self._get_retention_rate(age)
+                
+                cohort_players = round(cohort_size * retention_rate)
                 if cohort_players <= 0:
                     continue
                 avg_dep = self._get_avg_deposit(age, date)
@@ -446,6 +456,18 @@ class RevSharePoolGenerator:
             traffic_spend = float(traffic_df.loc[traffic_df['day'] == day, 'traffic_spend'].sum()) if day <= 30 else 0.0
             if day <= 30:
                 cumulative_traffic += traffic_spend
+            
+            # Calculate upfront referral bonuses for new deposits
+            new_ftds_today = int(ftd_map.get(day, 0)) if day <= 30 else 0
+            if new_ftds_today > 0:
+                # Assume referral ratio applies to new FTDs
+                referral_ftds = new_ftds_today * self.referral_ratio
+                # Calculate upfront bonuses based on pool allocation
+                upfront_referral_stable = referral_ftds * stable_pool_size / self.pool_size * self.upfront_bonus_stable
+                upfront_referral_growth = referral_ftds * growth_pool_size / self.pool_size * self.upfront_bonus_growth
+                daily_upfront_referral = upfront_referral_stable + upfront_referral_growth
+            else:
+                daily_upfront_referral = 0.0
 
             rows.append({
                 "date": date,
@@ -463,6 +485,7 @@ class RevSharePoolGenerator:
                 "cumulative_traffic": float(cumulative_traffic),
                 "effective_traffic_budget": float(self.effective_traffic_budget),
                 "ggr_multiplier": float(cumulative_ggr / self.pool_size),
+                "daily_upfront_referral": float(daily_upfront_referral),
             })
 
         # Create DataFrame and get monthly summary with high watermark logic
@@ -512,28 +535,14 @@ class RevSharePoolGenerator:
             cumulative_stable += daily_stable
             cumulative_growth += daily_growth
             
-            # Calculate referral costs (new logic with monthly calculations)
-            if row['day'] == 1 or (row['day'] <= 31 and row['day'] % 30 == 1):  # First day of month
-                monthly_turnover = self._generate_monthly_turnover(row['year'], row['month'])
-                monthly_stable_payout = monthly_stable if monthly_stable > 0 else 0
-                monthly_growth_payout = monthly_growth if monthly_growth > 0 else 0
+            # Calculate referral costs (percentage from each payout)
+            daily_referral_stable = daily_stable * self.ongoing_share_stable
+            daily_referral_growth = daily_growth * self.ongoing_share_growth
+            
+            # Add upfront referral bonuses from daily data
+            daily_upfront_referral = row.get('daily_upfront_referral', 0.0)
                 
-                # Calculate new referral costs
-                stable_ref_cost, growth_ref_cost, turnover_commission = self._calculate_new_referral_costs(
-                    monthly_stable_payout, monthly_growth_payout, monthly_turnover
-                )
-                
-                # Distribute monthly payouts across days
-                import calendar
-                days_in_month = calendar.monthrange(row['year'], row['month'])[1]
-                daily_referral_stable = (stable_ref_cost) / days_in_month if days_in_month > 0 else 0
-                daily_referral_growth = (growth_ref_cost + turnover_commission) / days_in_month if days_in_month > 0 else 0
-            else:
-                # Use old logic as fallback
-                daily_referral_stable = daily_stable * self.referral_ratio * self.ongoing_share_stable
-                daily_referral_growth = daily_growth * self.referral_ratio * self.ongoing_share_growth
-                
-            daily_total_referral = daily_referral_stable + daily_referral_growth
+            daily_total_referral = daily_referral_stable + daily_referral_growth + daily_upfront_referral
             cumulative_referral_cost += daily_total_referral
             
             # Update the row with payout information
