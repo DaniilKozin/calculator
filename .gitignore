@@ -66,8 +66,35 @@ logs/
 *.temp
 .cache/
 
-# Local data files (optional - remove if you want to include sample data)
+# Backup files
+*.bak
+*.backup
+
+# Data files (optional - uncomment if you don't want to track data)
 # *.csv
+# *.json
+# *.xlsx
+
+# Saved results directory
+saved_results/
+
+# Temporary analysis files
+*_analysis.py
+analyze_*.py
+test_*.py
+formula_*.py
+discrepancy_*.py
+exact_*.py
+final_*.py
+real_*.py
+tier_*.py
+detailed_*.py
+correct_*.py
+
+# Temporary documentation
+project_analysis.md
+readme.md
+DEPLOY_INSTRUCTIONS.md
 
 # Deployment
 .vercel/
