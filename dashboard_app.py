@@ -781,7 +781,8 @@ st.divider()
 # Monthly payouts per pool (bar chart)
 st.subheader("📊 Ежемесячные выплаты по пулам")
 monthly_df_display = monthly_df.copy()
-monthly_df_display["date"] = pd.to_datetime(monthly_df_display[["year", "month"]].assign(day=1))
+# Add one month offset for payout dates (payouts happen at the end of the month, so display next month)
+monthly_df_display["date"] = pd.to_datetime(monthly_df_display[["year", "month"]].assign(day=1)) + pd.DateOffset(months=1)
 payouts_melt = monthly_df_display[["date", "stable_payout", "growth_payout"]].melt("date", var_name="pool", value_name="payout")
 payouts_melt["payout"] = payouts_melt["payout"].clip(lower=0)
 
@@ -858,7 +859,8 @@ if tiers_df is None:
     st.info("Запустите run.py, чтобы сгенерировать таблицу выплат по ZNX: pool1_nov2025_monthly_tiers_znx.csv")
 else:
     tiers_df_display = tiers_df.copy()
-    tiers_df_display["date"] = pd.to_datetime(tiers_df_display[["year", "month"]].assign(day=1))
+    # Add one month offset for payout dates (payouts happen at the end of the month, so display next month)
+    tiers_df_display["date"] = pd.to_datetime(tiers_df_display[["year", "month"]].assign(day=1)) + pd.DateOffset(months=1)
     st.dataframe(
         tiers_df_display[["date", "pool", "tier", "per_znx_cash_usd", "per_znx_total_usd"]],
         use_container_width=True,
