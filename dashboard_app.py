@@ -6,7 +6,10 @@ import numpy as np
 import streamlit as st
 import altair as alt
 from datetime import datetime, date
+import zipfile
+import io
 
+# File paths
 DAILY_CSV = "pool1_nov2025_daily.csv"
 MONTHLY_CSV = "pool1_nov2025_monthly.csv"
 MONTHLY_TIERS_ZNX_CSV = "pool1_nov2025_monthly_tiers_znx.csv"
@@ -85,6 +88,23 @@ def load_saved_result(result_path):
     if os.path.exists(saved_tiers):
         shutil.copy2(saved_tiers, MONTHLY_TIERS_ZNX_CSV)
 
+def create_export_zip():
+    """Create a ZIP file with all current data for export"""
+    zip_buffer = io.BytesIO()
+    
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        # Add CSV files if they exist
+        for csv_file in [DAILY_CSV, MONTHLY_CSV, MONTHLY_TIERS_ZNX_CSV]:
+            if os.path.exists(csv_file):
+                zip_file.write(csv_file, csv_file)
+        
+        # Add parameters file if it exists in current directory
+        if os.path.exists("current_params.json"):
+            zip_file.write("current_params.json", "generation_params.json")
+    
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
+
 st.set_page_config(page_title="RevShare Pool Dashboard", layout="wide")
 
 # Sidebar for data generation
@@ -149,40 +169,22 @@ else:
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Параметры пула")
 
-# Pool parameters (only for data generation)
-znx_amount = st.sidebar.number_input("🪙 Количество собранных ZNX", min_value=1000.0, max_value=10000000.0, value=50000.0, step=1000.0, help="Количество ZNX токенов, собранных в пуле")
-znx_rate = st.sidebar.number_input("💱 Курс ZNX к USD", min_value=0.00000001, max_value=100.0, value=1.0, step=0.00000001, format="%.8f", help="Курс ZNX к доллару на момент окончания сбора (до 8 знаков после запятой)")
+# Simplified pool parameters - only 3 fields
+stable_znx_amount = st.sidebar.number_input("🔵 Токены в Stable пуле", min_value=0.0, max_value=10000000.0, value=30000.0, step=1000.0, help="Количество ZNX токенов в Stable пуле")
+growth_znx_amount = st.sidebar.number_input("🟢 Токены в Growth пуле", min_value=0.0, max_value=10000000.0, value=20000.0, step=1000.0, help="Количество ZNX токенов в Growth пуле")
+znx_rate = st.sidebar.number_input("💱 Курс ZNX", min_value=0.00000001, max_value=100.0, value=1.0, step=0.00000001, format="%.8f", help="Курс ZNX к доллару")
 
-# Calculate pool size in USD
+# Calculate derived values for backward compatibility
+znx_amount = stable_znx_amount + growth_znx_amount
 pool_size = znx_amount * znx_rate
-
-# Display pool size calculation
-st.sidebar.markdown("---")
-st.sidebar.markdown("**💰 Расчет размера пула:**")
-st.sidebar.markdown(f"• {znx_amount:,.0f} ZNX × ${znx_rate:.8f} = **${pool_size:,.2f}**")
-st.sidebar.markdown("---")
-
-# Ввод абсолютных количеств токенов для каждого пула
-stable_znx_amount = st.sidebar.number_input("🔵 Stable пул (ZNX)", min_value=0.0, max_value=znx_amount, value=znx_amount * 0.6, step=1000.0, help="Количество ZNX токенов в Stable пуле")
-growth_znx_amount = st.sidebar.number_input("🟢 Growth пул (ZNX)", min_value=0.0, max_value=znx_amount, value=znx_amount * 0.4, step=1000.0, help="Количество ZNX токенов в Growth пуле")
-
-# Проверка, что сумма не превышает общее количество
-total_allocated = stable_znx_amount + growth_znx_amount
-if total_allocated > znx_amount:
-    st.sidebar.error(f"⚠️ Сумма пулов ({total_allocated:,.0f}) превышает общее количество ZNX ({znx_amount:,.0f})")
-    st.sidebar.stop()
-
-# Расчет соотношений для совместимости с существующим кодом
 stable_ratio = stable_znx_amount / znx_amount if znx_amount > 0 else 0.0
 growth_ratio = growth_znx_amount / znx_amount if znx_amount > 0 else 0.0
 
-# Отображение информации о распределении
-st.sidebar.markdown("**📊 Распределение токенов:**")
-st.sidebar.markdown(f"• Stable: {stable_znx_amount:,.0f} ZNX ({stable_ratio:.1%})")
-st.sidebar.markdown(f"• Growth: {growth_znx_amount:,.0f} ZNX ({growth_ratio:.1%})")
-if total_allocated < znx_amount:
-    remaining = znx_amount - total_allocated
-    st.sidebar.markdown(f"• Остаток: {remaining:,.0f} ZNX ({remaining/znx_amount:.1%})")
+# Display summary
+st.sidebar.markdown("---")
+st.sidebar.markdown("**📊 Итого:**")
+st.sidebar.markdown(f"• Всего токенов: {znx_amount:,.0f} ZNX")
+st.sidebar.markdown(f"• Размер пула: ${pool_size:,.2f}")
 st.sidebar.markdown("---")
 
 # Date and target parameters
@@ -192,45 +194,16 @@ ggr_volatility = st.sidebar.slider("📊 Волатильность GGR", min_va
 
 # Referral parameters
 st.sidebar.markdown("### 🤝 Реферальная программа")
-referral_ratio = st.sidebar.slider("👥 Доля рефералов (%)", min_value=0.0, max_value=50.0, value=15.0, step=5.0, help="Процент инвесторов, пришедших по реферальным ссылкам. Используется только для генерации новых данных")
+referral_ratio = st.sidebar.slider("👥 Доля реферальных денег в пуле (%)", min_value=0.0, max_value=50.0, value=15.0, step=5.0, help="Процент инвесторов, пришедших по реферальным ссылкам")
 
-# Partner Status System (Cumulative)
-st.sidebar.markdown("#### 🏆 Накопительная система статусов")
-st.sidebar.info("""
-**Статус только растет вверх, определяется по лучшему показателю:**
-• ASSOCIATE: 5 активных рефералов ИЛИ 2,500 ZNX
-• PARTNER: 15 активных рефералов ИЛИ 7,500 ZNX  
-• EXECUTIVE: 35 активных рефералов ИЛИ 20,000 ZNX
-• ELITE: 75 активных рефералов ИЛИ 50,000 ZNX
-• AMBASSADOR: 150 активных рефералов ИЛИ 100,000 ZNX
-""")
+# Simplified bonus parameters
+st.sidebar.markdown("#### 🎁 Бонусы")
+upfront_bonus_stable = st.sidebar.slider("💰 Моментальный бонус (%)", min_value=1.0, max_value=5.0, value=3.0, step=0.5, help="Моментальный бонус от инвестиции")
+ongoing_share_stable = st.sidebar.slider("📈 Постоянный бонус Stable (%)", min_value=2.0, max_value=6.0, value=4.0, step=1.0, help="Постоянный бонус от месячной прибыли Stable пула")
+ongoing_share_growth = st.sidebar.select_slider("📈 Постоянный бонус Growth (%)", options=[10, 12, 15, 18, 20], value=15, help="Постоянный бонус от месячной прибыли Growth пула")
 
-# Turnover Commission Tiers
-st.sidebar.markdown("#### 💰 Комиссия с оборота")
-st.sidebar.info("""
-**Месячный оборот рефералов → Комиссия:**
-• EXECUTIVE: 50,001-150,000 EUR → 0.25%
-• ELITE: 150,001-500,000 EUR → 0.30%
-• AMBASSADOR: 500,001+ EUR → 0.40%
-
-*Считается суммарный top-up volume всех рефералов за календарный месяц*
-""")
-
-# Investment and Profit Bonuses
-st.sidebar.markdown("#### 🎁 Бонусы с инвестиций и прибыли")
-st.sidebar.info("""
-**Stable Pool:** 1-5% от инвестиции + 2-6% от месячной прибыли
-**Growth Pool:** 1-5% от инвестиции + 10-20% от месячной прибыли
-
-*Выплачивается 1 числа каждого месяца на основе статуса предыдущего месяца*
-""")
-
-# Legacy parameters for backward compatibility
-st.sidebar.markdown("#### ⚙️ Технические параметры (для совместимости)")
-upfront_bonus_stable = st.sidebar.slider("💰 Stable бонус (%)", min_value=0.0, max_value=10.0, value=3.0, step=0.5, help="Процент от реферального капитала в Stable пуле, выплачиваемый единовременно")
-upfront_bonus_growth = st.sidebar.slider("💰 Growth бонус (%)", min_value=0.0, max_value=10.0, value=3.0, step=0.5, help="Процент от реферального капитала в Growth пуле, выплачиваемый единовременно")
-ongoing_share_stable = st.sidebar.slider("📈 Stable доля (%)", min_value=0.0, max_value=20.0, value=4.0, step=1.0, help="Процент от выплат Stable инвесторам, выплачиваемый рефералам")
-ongoing_share_growth = st.sidebar.slider("📈 Growth доля (%)", min_value=0.0, max_value=30.0, value=15.0, step=1.0, help="Процент от выплат Growth инвесторам, выплачиваемый рефералам")
+# Set growth upfront bonus same as stable for compatibility
+upfront_bonus_growth = upfront_bonus_stable
 
 
 # Traffic parameters
@@ -391,6 +364,66 @@ daily_df, monthly_df, tiers_df = load_data()
 if daily_df is None or monthly_df is None:
     st.warning("CSV файлы не найдены. Запустите run.py для генерации данных.")
     st.stop()
+
+# Export and Save to Favorites section
+st.markdown("---")
+col1, col2, col3 = st.columns([1, 1, 2])
+
+with col1:
+    if st.button("📥 Экспорт данных", help="Скачать все данные в ZIP архиве"):
+        try:
+            zip_data = create_export_zip()
+            st.download_button(
+                label="💾 Скачать ZIP",
+                data=zip_data,
+                file_name=f"zenex_data_export_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+                mime="application/zip",
+                help="Скачать архив с CSV файлами и параметрами"
+            )
+        except Exception as e:
+            st.error(f"❌ Ошибка экспорта: {str(e)}")
+
+with col2:
+    # Save current configuration to favorites
+    favorite_name = st.text_input("💫 Название конфигурации", 
+                                 value=f"Конфигурация_{datetime.now().strftime('%Y%m%d_%H%M')}", 
+                                 help="Введите название для сохранения текущей конфигурации")
+    
+    if st.button("⭐ Сохранить в избранное", help="Сохранить текущие параметры как избранную конфигурацию"):
+        if favorite_name.strip():
+            try:
+                # Create current parameters
+                current_params = {
+                    'znx_amount': stable_znx_amount + growth_znx_amount,
+                    'znx_rate': znx_rate,
+                    'pool_size': (stable_znx_amount + growth_znx_amount) * znx_rate,
+                    'stable_znx_amount': stable_znx_amount,
+                    'growth_znx_amount': growth_znx_amount,
+                    'stable_ratio': stable_znx_amount / (stable_znx_amount + growth_znx_amount) if (stable_znx_amount + growth_znx_amount) > 0 else 0.0,
+                    'growth_ratio': growth_znx_amount / (stable_znx_amount + growth_znx_amount) if (stable_znx_amount + growth_znx_amount) > 0 else 0.0,
+                    'start_date': start_date.strftime("%Y-%m-%d"),
+                    'target_ggr': target_ggr,
+                    'ggr_volatility': ggr_volatility,
+                    'referral_ratio': referral_ratio,
+                    'upfront_bonus_stable': upfront_bonus_stable,
+                    'upfront_bonus_growth': upfront_bonus_stable,  # Same as stable
+                    'ongoing_share_stable': ongoing_share_stable,
+                    'ongoing_share_growth': ongoing_share_growth,
+                    'cpa_min': cpa_min,
+                    'cpa_max': cpa_max,
+                    'generation_timestamp': datetime.now().isoformat(),
+                    'is_favorite': True
+                }
+                
+                save_generation_result(current_params, favorite_name.strip())
+                st.success(f"⭐ Конфигурация '{favorite_name.strip()}' сохранена в избранное!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Ошибка сохранения: {str(e)}")
+        else:
+            st.error("❌ Введите название конфигурации")
+
+st.markdown("---")
 
 def display_tier_returns(ggr_multiplier):
     """Show per-dollar returns for each tier"""
