@@ -332,28 +332,149 @@ if generate_button:
 # Custom CSS for better styling
 st.markdown("""
 <style>
+    /* Основные стили для дашборда - компактная версия */
+    .main .block-container {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+    }
+    
+    /* Улучшенные карточки метрик - компактные */
     .metric-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         padding: 1rem;
-        border-radius: 10px;
+        border-radius: 12px;
         color: white;
         text-align: center;
-        margin: 0.5rem 0;
+        margin: 0.3rem 0;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.1);
+        transition: transform 0.2s ease;
     }
+    
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 18px rgba(0, 0, 0, 0.15);
+    }
+    
     .success-metric {
         background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
     }
+    
     .warning-metric {
         background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
     }
+    
     .info-metric {
         background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
     }
+    
+    /* Стили для метрик Streamlit - компактные */
     .stMetric {
-        background: rgba(255, 255, 255, 0.1);
-        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 0.8rem;
         border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        transition: all 0.3s ease;
+        margin-bottom: 0.5rem;
+    }
+    
+    .stMetric:hover {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.2);
+        transform: translateY(-1px);
+    }
+
+    /* Улучшенные заголовки - компактные */
+    h1, h2, h3 {
+        color: #1f2937;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    h1 {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-size: 2.2rem;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+
+    h2 {
+        border-left: 4px solid #667eea;
+        padding-left: 1rem;
+        margin-top: 1rem;
+        margin-bottom: 0.8rem;
+    }
+    
+    h3 {
+        margin-top: 0.8rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Стили для кнопок */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.5rem 1.5rem;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* Стили для разделителей - компактные */
+    hr {
+        border: none;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, #667eea, transparent);
+        margin: 1rem 0;
+    }
+
+    /* Стили для таблиц - компактные */
+    .dataframe {
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        margin-bottom: 1rem;
+    }
+
+    /* Стили для экспорта - компактные */
+    .export-section {
+        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        padding: 1rem;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        margin-bottom: 1rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+    
+    /* Компактные отступы для секций */
+    .stMarkdown {
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Компактные отступы для колонок */
+    .stColumn {
+        padding: 0.2rem;
+    }
+    
+    /* Анимации */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .stMetric, .metric-card {
+        animation: fadeIn 0.5s ease-out;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -365,12 +486,32 @@ if daily_df is None or monthly_df is None:
     st.warning("CSV файлы не найдены. Запустите run.py для генерации данных.")
     st.stop()
 
-# Export and Save to Favorites section
-st.markdown("---")
-col1, col2, col3 = st.columns([1, 1, 2])
+# Calculate key metrics from data (consolidated calculations)
+final_ggr = float(daily_df["cumulative_ggr"].iloc[-1])
+ggr_multiplier = float(daily_df["ggr_multiplier"].iloc[-1])
+real_pool_size = final_ggr / ggr_multiplier if ggr_multiplier > 0 else DEFAULT_POOL_SIZE
+real_stable_ratio = stable_ratio  # Use calculated ratio from user input
+real_growth_ratio = growth_ratio  # Use calculated ratio from user input
 
-with col1:
-    if st.button("📥 Экспорт данных", help="Скачать все данные в ZIP архиве"):
+# Main Dashboard Header
+st.title("🎯 RevShare Pool Dashboard")
+st.markdown(f"""
+<div style="text-align: center; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); 
+     padding: 0.8rem; border-radius: 10px; margin-bottom: 1.5rem; border: 1px solid #e2e8f0;">
+    <h3 style="margin: 0; color: #1f2937;">
+        📊 Пул: <span style="color: #667eea;">${real_pool_size:,.0f}</span> | 
+        🎯 GGR: <span style="color: #667eea;">{ggr_multiplier:.1f}x</span> | 
+        🔵 Stable: <span style="color: #2196F3;">{real_stable_ratio:.0%}</span> | 
+        🟢 Growth: <span style="color: #4CAF50;">{real_growth_ratio:.0%}</span>
+    </h3>
+</div>
+""", unsafe_allow_html=True)
+
+# Action buttons at the top
+col_action1, col_action2, col_action3 = st.columns([2, 2, 1])
+
+with col_action1:
+    if st.button("📤 Экспорт данных", help="Скачать все CSV файлы в ZIP архиве", type="secondary"):
         try:
             zip_data = create_export_zip()
             st.download_button(
@@ -383,57 +524,69 @@ with col1:
         except Exception as e:
             st.error(f"❌ Ошибка экспорта: {str(e)}")
 
-with col2:
-    # Save current configuration to favorites
-    favorite_name = st.text_input("💫 Название конфигурации", 
-                                 value=f"Конфигурация_{datetime.now().strftime('%Y%m%d_%H%M')}", 
-                                 help="Введите название для сохранения текущей конфигурации")
+with col_action2:
+    if "show_save_favorite" not in st.session_state:
+        st.session_state.show_save_favorite = False
     
-    if st.button("⭐ Сохранить в избранное", help="Сохранить текущие параметры как избранную конфигурацию"):
-        if favorite_name.strip():
-            try:
-                # Create current parameters
-                current_params = {
-                    'znx_amount': stable_znx_amount + growth_znx_amount,
-                    'znx_rate': znx_rate,
-                    'pool_size': (stable_znx_amount + growth_znx_amount) * znx_rate,
-                    'stable_znx_amount': stable_znx_amount,
-                    'growth_znx_amount': growth_znx_amount,
-                    'stable_ratio': stable_znx_amount / (stable_znx_amount + growth_znx_amount) if (stable_znx_amount + growth_znx_amount) > 0 else 0.0,
-                    'growth_ratio': growth_znx_amount / (stable_znx_amount + growth_znx_amount) if (stable_znx_amount + growth_znx_amount) > 0 else 0.0,
-                    'start_date': start_date.strftime("%Y-%m-%d"),
-                    'target_ggr': target_ggr,
-                    'ggr_volatility': ggr_volatility,
-                    'referral_ratio': referral_ratio,
-                    'upfront_bonus_stable': upfront_bonus_stable,
-                    'upfront_bonus_growth': upfront_bonus_stable,  # Same as stable
-                    'ongoing_share_stable': ongoing_share_stable,
-                    'ongoing_share_growth': ongoing_share_growth,
-                    'cpa_min': cpa_min,
-                    'cpa_max': cpa_max,
-                    'generation_timestamp': datetime.now().isoformat(),
-                    'is_favorite': True
-                }
-                
-                save_generation_result(current_params, favorite_name.strip())
-                st.success(f"⭐ Конфигурация '{favorite_name.strip()}' сохранена в избранное!")
+    if st.button("⭐ Сохранить в избранное", help="Сохранить текущую конфигурацию", type="secondary"):
+        st.session_state.show_save_favorite = True
+    
+    if st.session_state.show_save_favorite:
+        favorite_name = st.text_input("📝 Название конфигурации", 
+                                     value=f"Конфигурация_{datetime.now().strftime('%Y%m%d_%H%M')}", 
+                                     key="favorite_name_input")
+        
+        col_save1, col_save2 = st.columns(2)
+        with col_save1:
+            if st.button("💾 Сохранить", key="save_favorite_btn"):
+                if favorite_name.strip():
+                    try:
+                        current_params = {
+                            'znx_amount': stable_znx_amount + growth_znx_amount,
+                            'znx_rate': znx_rate,
+                            'pool_size': (stable_znx_amount + growth_znx_amount) * znx_rate,
+                            'stable_znx_amount': stable_znx_amount,
+                            'growth_znx_amount': growth_znx_amount,
+                            'stable_ratio': stable_znx_amount / (stable_znx_amount + growth_znx_amount) if (stable_znx_amount + growth_znx_amount) > 0 else 0.0,
+                            'growth_ratio': growth_znx_amount / (stable_znx_amount + growth_znx_amount) if (stable_znx_amount + growth_znx_amount) > 0 else 0.0,
+                            'start_date': start_date.strftime("%Y-%m-%d"),
+                            'target_ggr': target_ggr,
+                            'ggr_volatility': ggr_volatility,
+                            'referral_ratio': referral_ratio,
+                            'upfront_bonus_stable': upfront_bonus_stable,
+                            'upfront_bonus_growth': upfront_bonus_stable,
+                            'ongoing_share_stable': ongoing_share_stable,
+                            'ongoing_share_growth': ongoing_share_growth,
+                            'cpa_min': cpa_min,
+                            'cpa_max': cpa_max,
+                            'generation_timestamp': datetime.now().isoformat(),
+                            'is_favorite': True
+                        }
+                        
+                        save_generation_result(current_params, favorite_name.strip())
+                        st.success(f"⭐ Конфигурация '{favorite_name.strip()}' сохранена в избранное!")
+                        st.session_state.show_save_favorite = False
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Ошибка сохранения: {str(e)}")
+                else:
+                    st.error("❌ Введите название конфигурации")
+        
+        with col_save2:
+            if st.button("❌ Отмена", key="cancel_favorite_btn"):
+                st.session_state.show_save_favorite = False
                 st.rerun()
-            except Exception as e:
-                st.error(f"❌ Ошибка сохранения: {str(e)}")
-        else:
-            st.error("❌ Введите название конфигурации")
 
-st.markdown("---")
+# Removed duplicate calculations and title - using consolidated values from above
 
 def display_tier_returns(ggr_multiplier):
-    """Show per-dollar returns for each tier"""
-    
-    st.subheader("💰 Returns Per $1 Invested")
+    """Отображение доходности по тирам"""
+    st.subheader("💰 Доходность на $1 инвестиции")
     
     cols = st.columns(2)
     
     with cols[0]:
-        st.markdown("**Stable Pool** (no tokens back)")
+        st.markdown("**🔵 Stable Pool** (только cash)")
         for tier, rate in [('Basic', 0.34), ('Advanced', 0.3825), ('Premium', 0.425)]:
             per_dollar = ggr_multiplier * rate
             profit_pct = (per_dollar - 1) * 100
@@ -446,7 +599,7 @@ def display_tier_returns(ggr_multiplier):
             )
     
     with cols[1]:
-        st.markdown("**Growth Pool** (+ 100% tokens)")
+        st.markdown("**🟢 Growth Pool** (cash + 100% токенов)")
         for tier, rate in [('Basic', 0.085), ('Advanced', 0.10625), ('Premium', 0.1275)]:
             cash_per_dollar = ggr_multiplier * rate
             total_per_dollar = cash_per_dollar + 1.0
@@ -457,164 +610,53 @@ def display_tier_returns(ggr_multiplier):
                 f"${cash_per_dollar:.3f} cash"
             )
 
-# Calculate real pool size and ratios from data first
-final_ggr = float(daily_df["cumulative_ggr"].iloc[-1])
-ggr_multiplier = float(daily_df["ggr_multiplier"].iloc[-1])
-real_pool_size = final_ggr / ggr_multiplier if ggr_multiplier > 0 else DEFAULT_POOL_SIZE
+# Дублированная секция экспорта удалена - используется объединенная версия ниже
 
-# Get real stable ratio from data - use standard 60/40 split
-# Since we don't have investment columns, use the standard ratio
-real_stable_ratio = 0.6  # 60% Stable
-real_growth_ratio = 0.4  # 40% Growth
+# Consolidated metrics section
+st.subheader("📊 Ключевые показатели и анализ")
 
-st.title("💰 RevShare Pool Dashboard")
-st.markdown(f"### Анализ доходности пулов Zenex с размером ${real_pool_size:,.0f}")
-st.markdown(f"**🔵 Stable:** {real_stable_ratio:.0%} | **🟢 Growth:** {real_growth_ratio:.0%}")
-
-# Export functionality
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📤 Экспорт данных")
-
-if st.sidebar.button("📊 Скачать CSV файлы", help="Скачать все CSV файлы в ZIP архиве"):
-    import zipfile
-    import io
-    
-    # Create a ZIP file in memory
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        # Add CSV files if they exist
-        if os.path.exists(DAILY_CSV):
-            zip_file.write(DAILY_CSV, DAILY_CSV)
-        if os.path.exists(MONTHLY_CSV):
-            zip_file.write(MONTHLY_CSV, MONTHLY_CSV)
-        if os.path.exists(MONTHLY_TIERS_ZNX_CSV):
-            zip_file.write(MONTHLY_TIERS_ZNX_CSV, MONTHLY_TIERS_ZNX_CSV)
-    
-    zip_buffer.seek(0)
-    
-    st.sidebar.download_button(
-        label="💾 Скачать ZIP архив",
-        data=zip_buffer.getvalue(),
-        file_name=f"revshare_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-        mime="application/zip",
-        help="Скачать все CSV файлы в ZIP архиве"
-    )
-
-# Individual file downloads
-if os.path.exists(DAILY_CSV):
-    with open(DAILY_CSV, 'rb') as f:
-        st.sidebar.download_button(
-            label="📈 Скачать Daily CSV",
-            data=f.read(),
-            file_name=DAILY_CSV,
-            mime="text/csv"
-        )
-
-if os.path.exists(MONTHLY_CSV):
-    with open(MONTHLY_CSV, 'rb') as f:
-        st.sidebar.download_button(
-            label="📅 Скачать Monthly CSV",
-            data=f.read(),
-            file_name=MONTHLY_CSV,
-            mime="text/csv"
-        )
-
-if os.path.exists(MONTHLY_TIERS_ZNX_CSV):
-    with open(MONTHLY_TIERS_ZNX_CSV, 'rb') as f:
-        st.sidebar.download_button(
-            label="🎯 Скачать Tiers CSV",
-            data=f.read(),
-            file_name=MONTHLY_TIERS_ZNX_CSV,
-            mime="text/csv"
-        )
-
-# Cumulative summary metrics at the top
-st.subheader("💼 Совокупные показатели")
+# Calculate all metrics once
 total_collected = real_pool_size
-
-# Calculate actual cash payouts from real data only (no artificial corrections)
 total_stable_payout = float(monthly_df["stable_payout"].sum())
 total_growth_payout = float(monthly_df["growth_payout"].sum())
-
-# Total cash paid = only real payouts from CSV data
 total_cash_paid = total_stable_payout + total_growth_payout
 final_ggr = float(daily_df["cumulative_ggr"].iloc[-1])
 ggr_multiplier = final_ggr / total_collected if total_collected > 0 else 0
-
-# Calculate referral costs
 total_referral_cost = float(monthly_df["monthly_referral_cost"].sum()) if "monthly_referral_cost" in monthly_df.columns else 0
-
-# Calculate total payments (investments + referrals)
 total_payments = total_cash_paid + total_referral_cost
-
-# Calculate cost of capital
 cost_of_capital = (total_payments / total_collected) * 100 if total_collected > 0 else 0
+spent = float(daily_df["cumulative_traffic"].iloc[-1])
+ftds = int(daily_df["new_ftds"].sum())
+avg_cpa = spent / max(1, ftds)
 
-col_summary1, col_summary2, col_summary3, col_summary4, col_summary5 = st.columns(5)
-with col_summary1:
-    st.metric("💰 Собрано", f"${total_collected:,.0f}", delta="Общий размер пула")
-with col_summary2:
-    st.metric("💸 Cash выплаты", f"${total_cash_paid:,.0f}", delta="Только денежные выплаты")
-with col_summary3:
-    st.metric("🤝 Реферальные", f"${total_referral_cost:,.0f}", delta="Реферальные расходы")
-with col_summary4:
-    color_indicator = "🟢" if ggr_multiplier >= 3.0 else "🟡" if ggr_multiplier >= 2.5 else "🔴"
-    st.metric(f"{color_indicator} GGR множитель", f"{ggr_multiplier:.2f}x", delta="Эффективность пула")
-with col_summary5:
-    cost_color = "🟢" if cost_of_capital <= 50 else "🟡" if cost_of_capital <= 75 else "🔴"
-    st.metric(f"{cost_color} Стоимость капитала", f"{cost_of_capital:.1f}%", delta="Общие выплаты/Сбор")
-
-# Cost of Capital breakdown
-st.subheader("💹 Анализ стоимости капитала")
-col_cost1, col_cost2, col_cost3 = st.columns(3)
-
-with col_cost1:
-    investment_ratio = (total_cash_paid / total_collected) * 100 if total_collected > 0 else 0
-    st.metric("📊 Инвестиционные выплаты", f"{investment_ratio:.1f}%", delta=f"${total_cash_paid:,.0f}")
-
-with col_cost2:
-    referral_ratio = (total_referral_cost / total_collected) * 100 if total_collected > 0 else 0
-    st.metric("🤝 Реферальные расходы", f"{referral_ratio:.1f}%", delta=f"${total_referral_cost:,.0f}")
-
-with col_cost3:
-    total_ratio = (total_payments / total_collected) * 100 if total_collected > 0 else 0
-    st.metric("💰 Общая стоимость", f"{total_ratio:.1f}%", delta=f"${total_payments:,.0f}")
-
-# Cost of capital explanation
-st.info(f"""
-**📈 Стоимость капитала: {cost_of_capital:.1f}%**
-
-Это показатель того, сколько процентов от собранных средств составляют все выплаты:
-- **Инвестиционные выплаты**: {investment_ratio:.1f}% (${total_cash_paid:,.0f})
-- **Реферальные расходы**: {referral_ratio:.1f}% (${total_referral_cost:,.0f})
-- **Общие выплаты**: {total_ratio:.1f}% (${total_payments:,.0f})
-
-Формула: (Общие выплаты / Собранные средства) × 100%
-""")
-
-st.markdown("---")
-
-# Key metrics
-st.subheader("📊 Ключевые показатели")
-
-# First row - main metrics
-col1, col2, col3 = st.columns(3)
+# Main metrics in compact layout
+col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
-    st.metric("💰 Raised", f"${real_pool_size:,.0f}", delta=None)
+    st.metric("💰 Собрано", f"${total_collected:,.0f}", help="Общая сумма средств, собранных в пуле")
 with col2:
-    spent = float(daily_df["cumulative_traffic"].iloc[-1])
-    efficiency = (spent / real_pool_size) * 100
-    st.metric("📈 Spent (Traffic)", f"${spent:,.0f}", delta=f"{efficiency:.1f}% от пула")
+    color_indicator = "🟢" if ggr_multiplier >= 3.0 else "🟡" if ggr_multiplier >= 2.5 else "🔴"
+    st.metric(f"{color_indicator} GGR", f"{ggr_multiplier:.2f}x", help="Отношение валового игрового дохода к потраченным средствам")
 with col3:
-    ftds = int(daily_df["new_ftds"].sum())
-    st.metric("👥 FTD", f"{ftds}", delta="First-Time Depositors")
-
-# Second row - additional metrics
-col4, col5, col6 = st.columns(3)
+    st.metric("📈 Потрачено", f"${spent:,.0f}", delta=f"{(spent/real_pool_size)*100:.1f}%", help="Общие затраты на трафик")
 with col4:
-    avg_cpa = spent / max(1, ftds)
-    st.metric("💸 CPA", f"${avg_cpa:,.2f}", delta="Cost per FTD")
+    st.metric("👥 FTD", f"{ftds}", delta=f"CPA: ${avg_cpa:.0f}", help="Количество первых депозитов и стоимость привлечения")
 with col5:
+    cost_color = "🟢" if cost_of_capital <= 50 else "🟡" if cost_of_capital <= 75 else "🔴"
+    st.metric(f"{cost_color} Капитал", f"{cost_of_capital:.1f}%", help="Стоимость капитала (все выплаты/сбор)")
+
+# Financial breakdown in second row
+col6, col7, col8, col9, col10 = st.columns(5)
+with col6:
+    st.metric("💸 Cash выплаты", f"${total_cash_paid:,.0f}", help="Денежные выплаты инвесторам")
+with col7:
+    st.metric("🤝 Реферальные", f"${total_referral_cost:,.0f}", help="Расходы на реферальную программу")
+with col8:
+    investment_ratio = (total_cash_paid / total_collected) * 100 if total_collected > 0 else 0
+    st.metric("📊 Инвест. %", f"{investment_ratio:.1f}%", help="Процент инвестиционных выплат")
+with col9:
+    referral_ratio = (total_referral_cost / total_collected) * 100 if total_collected > 0 else 0
+    st.metric("🎁 Рефер. %", f"{referral_ratio:.1f}%", help="Процент реферальных расходов")
+with col10:
     # Use the correct column name from the new referral system implementation
     if "monthly_referral_cost" in monthly_df.columns:
         referral_total = float(monthly_df["monthly_referral_cost"].sum())
@@ -622,7 +664,7 @@ with col5:
         referral_total = float(monthly_df["referral_paid_usd"].sum())
     else:
         referral_total = 0.0
-    st.metric("🤝 Referral", f"${referral_total:,.0f}", delta="Payouts")
+    st.metric("🤝 Referral", f"${referral_total:,.0f}", delta="Payouts", help="Общие выплаты по реферальной программе. Включает моментальные и постоянные бонусы рефералам")
 with col6:
     # Пустая колонка для баланса
     st.write("")
@@ -630,8 +672,10 @@ with col6:
 # Display tier returns
 display_tier_returns(ggr_multiplier)
 
-# Breakeven metrics
-st.subheader("⚖️ Метрики безубыточности")
+# Combined breakeven metrics and export section
+st.subheader("⚖️ Метрики безубыточности и экспорт")
+
+# Breakeven metrics in first row
 col1, col2, col3 = st.columns(3)
 
 # Calculate GGR multiplier and breakeven metrics
@@ -642,16 +686,60 @@ with col1:
     color = "🟢" if is_breakeven else "🔴"
     st.metric(f"{color} Min GGR for Stable Basic Breakeven", f"{min_ggr_multiplier_for_basic:.2f}x", 
               delta=f"Текущий: {ggr_multiplier:.2f}x", 
-              help="Stable Basic (34% rate) needs 2.94x GGR to return 100% capital")
+              help="Минимальный GGR множитель для безубыточности Stable Basic тира (34% ставка). При 2.94x GGR инвесторы получают 100% возврат капитала.")
 with col2:
     color = "🟢" if final_ggr >= real_pool_size * 2.5 else "🔴"
     st.metric(f"{color} Total GGR", f"${final_ggr:,.0f}", 
-              delta=f"{ggr_multiplier:.2f}x множитель")
+              delta=f"{ggr_multiplier:.2f}x множитель",
+              help="Общий валовой игровой доход (GGR) за весь период. Зеленый цвет означает достижение целевого уровня 2.5x от размера пула.")
 with col3:
     status = "✅ Безубыточность" if is_breakeven else "❌ Убыток"
-    st.metric("📊 Статус", status, delta=None)
+    st.metric("📊 Статус", status, delta=None,
+              help="Статус безубыточности пула. Зеленый - пул прибыльный, красный - убыточный. Основан на минимальном GGR для Stable Basic.")
 
-st.divider()
+# Export and favorites section in second row
+st.markdown("##### 📤 Экспорт и избранное")
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("📦 Скачать ZIP архив", help="Скачать все CSV файлы и параметры в ZIP архиве", use_container_width=True):
+        with st.spinner("📦 Создаю ZIP архив..."):
+            zip_buffer = create_export_zip()
+            if zip_buffer:
+                st.download_button(
+                    label="⬇️ Скачать архив",
+                    data=zip_buffer,
+                    file_name=f"revshare_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
+
+with col2:
+    save_name = st.text_input("💾 Название конфигурации", 
+                             value=f"Конфиг_{datetime.now().strftime('%Y%m%d_%H%M')}", 
+                             help="Введите название для сохранения текущей конфигурации")
+    
+    if st.button("💾 Сохранить в избранное", help="Сохранить текущие параметры как избранную конфигурацию", use_container_width=True):
+        if save_name.strip():
+            with st.spinner("💾 Сохраняю конфигурацию..."):
+                try:
+                    # Consolidated values are used here
+                    generation_params = {
+                        'znx_amount': znx_amount,
+                        'znx_rate': znx_rate,
+                        'pool_size': pool_size,
+                        'stable_znx_amount': stable_znx_amount,
+                        'growth_znx_amount': growth_znx_amount,
+                        'stable_ratio': stable_ratio,
+                        'growth_ratio': growth_ratio,
+                        'generation_timestamp': datetime.now().isoformat()
+                    }
+                    save_generation_result(generation_params, save_name.strip())
+                    st.success(f"✅ Конфигурация '{save_name.strip()}' сохранена!")
+                except Exception as e:
+                    st.error(f"❌ Ошибка сохранения: {str(e)}")
+        else:
+            st.warning("⚠️ Введите название конфигурации")
 
 # GGR chart and total
 left, right = st.columns([2, 1])
@@ -751,18 +839,20 @@ st.dataframe(daily_display, use_container_width=True, hide_index=True)
 st.divider()
 
 # Monthly per-ZNX table
-st.subheader("Ежемесячные выплаты на 1 ZNX (6 сценариев: 2 пула × 3 тира)")
-
-# Explanation of the table
-st.info("""
-**Объяснение таблицы:**
-- **cash_usd** - денежная выплата в долларах за 1 ZNX токен
-- **total_usd** - общая стоимость выплаты за 1 ZNX (только cash выплаты, без учета возврата токенов)
-- **Stable пул**: выплачивает только деньги (% от GGR). Важно покрыть стоимость тела к USD при изменении цены токена
-- **Growth пул**: выплачивает только cash (% от GGR). Возврат токенов не учитывается в расчетах
-- **Тиры**: Bronze (basic), Silver (advanced), Gold (premium) - разные уровни доходности
-- **Минимальный порог**: 295% GGR/Spent для выхода в ноль, 34% минимум для Stable пула
-""")
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.subheader("💰 Ежемесячные выплаты на 1 ZNX")
+with col2:
+    with st.expander("ℹ️ Справка"):
+        st.markdown("""
+        **Объяснение таблицы:**
+        - **cash_usd** - денежная выплата в $ за 1 ZNX
+        - **total_usd** - общая стоимость выплаты за 1 ZNX
+        - **Stable пул**: только деньги (% от GGR)
+        - **Growth пул**: только cash (% от GGR)
+        - **Тиры**: Basic/Advanced/Premium
+        - **Минимум**: 295% GGR/Spent для безубытка
+        """)
 
 if tiers_df is None:
     st.info("Запустите run.py, чтобы сгенерировать таблицу выплат по ZNX: pool1_nov2025_monthly_tiers_znx.csv")
@@ -775,26 +865,7 @@ else:
         hide_index=True,
     )
 
-    # Chart for per-ZNX payouts
-    tiers_df_display["pool_display"] = tiers_df_display["pool"].map({
-        "stable": "🔵 Stable",
-        "growth": "🟢 Growth"
-    })
-    
-    znx_chart = alt.Chart(tiers_df_display).mark_bar().encode(
-        x=alt.X("pool_display:N", axis=alt.Axis(title="Пул")),
-        y=alt.Y("per_znx_total_usd:Q", axis=alt.Axis(title="USD за 1 ZNX (total)")),
-        color=alt.Color("pool_display:N", 
-                       scale=alt.Scale(range=["#2196F3", "#4CAF50"]),
-                       legend=alt.Legend(title="Пул")),
-        column=alt.Column("tier:N", header=alt.Header(title="Тир"))
-    ).properties(
-        width=120,
-        height=200
-    ).resolve_scale(
-        x='independent'
-    )
-    st.altair_chart(znx_chart, use_container_width=False)
+    # Диаграмма удалена - таблицы достаточно
 
 # Add summary table for return per dollar invested
 st.divider()
@@ -875,17 +946,24 @@ if daily_df is not None and monthly_df is not None and tiers_df is not None:
     summary_df = pd.DataFrame(summary_data)
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
-    # Add explanation
-    st.info("""
-    **📊 Правильная формула расчетов:**
-    - **Stable пул**: `payout = investment × GGR_multiplier × tier_rate`
-    - **Growth пул**: `total = (investment × GGR_multiplier × tier_rate) + investment`
-    - **Stable тиры**: Basic (34%), Advanced (38.25%), Premium (42.5%)
-    - **Growth тиры**: Basic (8.5%), Advanced (10.625%), Premium (12.75%)
-    - **Распределение капитала**: Basic 30%, Advanced 40%, Premium 30%
-    - **Возврат на $1 (Stable)**: `GGR_множитель × tier_rate`
-    - **Возврат на $1 (Growth)**: `(GGR_множитель × tier_rate) + 1.00`
-    """)
+    # Add interactive explanation
+    with st.expander("🧮 Формулы расчетов"):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("""
+            **💰 Stable пул:**
+            - Формула: `investment × GGR × tier_rate`
+            - Basic: 34% | Advanced: 38.25% | Premium: 42.5%
+            - Возврат на $1: `GGR × tier_rate`
+            """)
+        with col2:
+            st.markdown("""
+            **🚀 Growth пул:**
+            - Формула: `(investment × GGR × tier_rate) + investment`
+            - Basic: 8.5% | Advanced: 10.625% | Premium: 12.75%
+            - Возврат на $1: `(GGR × tier_rate) + 1.00`
+            """)
+        st.markdown("**📊 Распределение капитала:** Basic 30% | Advanced 40% | Premium 30%")
 else:
     st.warning("Сгенерируйте данные для просмотра итоговой доходности")
 
