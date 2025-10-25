@@ -212,14 +212,17 @@ cpa_max = st.sidebar.number_input("💸 CPA макс ($)", min_value=cpa_min, ma
 
 st.sidebar.markdown("### Реферальная система")
 referral_ratio = st.sidebar.slider("👥 Доля рефералов", min_value=0.0, max_value=1.0, value=0.3, step=0.05, help="Доля депозитов от рефералов")
-upfront_bonus_stable = st.sidebar.number_input("💰 Бонус за депозит Stable ($)", min_value=0.0, max_value=100.0, value=10.0, step=1.0, help="Моментальная выплата за депозит реферала в Stable пул")
-upfront_bonus_growth = st.sidebar.number_input("💰 Бонус за депозит Growth ($)", min_value=0.0, max_value=100.0, value=15.0, step=1.0, help="Моментальная выплата за депозит реферала в Growth пул")
-ongoing_share_stable = st.sidebar.slider("📊 % с выплат Stable", min_value=0.0, max_value=0.5, value=0.05, step=0.01, help="Процент с каждой выплаты Stable пула")
-ongoing_share_growth = st.sidebar.slider("📊 % с выплат Growth", min_value=0.0, max_value=0.5, value=0.08, step=0.01, help="Процент с каждой выплаты Growth пула")
+upfront_bonus_stable = st.sidebar.slider("💰 Бонус за депозит Stable (%)", min_value=0.01, max_value=0.05, value=0.03, step=0.01, help="Моментальная выплата за депозит реферала в Stable пул (1-5%)")
+upfront_bonus_growth = st.sidebar.slider("💰 Бонус за депозит Growth (%)", min_value=0.01, max_value=0.05, value=0.03, step=0.01, help="Моментальная выплата за депозит реферала в Growth пул (1-5%)")
+ongoing_share_stable = st.sidebar.slider("📊 % с выплат Stable", min_value=0.02, max_value=0.06, value=0.04, step=0.01, help="Процент с каждой выплаты Stable пула (2-6%)")
+ongoing_share_growth = st.sidebar.slider("📊 % с выплат Growth", min_value=0.10, max_value=0.20, value=0.15, step=0.01, help="Процент с каждой выплаты Growth пула (10-20%)")
 
 # Calculate effective CPA with referral costs
-upfront_referral_stable = referral_ratio * upfront_bonus_stable
-upfront_referral_growth = referral_ratio * upfront_bonus_growth
+# Upfront bonuses are now percentages, so we need to estimate based on average deposit
+# For CPA calculation, we'll use a conservative estimate of average deposit
+avg_deposit_estimate = 500  # Conservative estimate for calculation purposes
+upfront_referral_stable = referral_ratio * (upfront_bonus_stable / 100) * avg_deposit_estimate
+upfront_referral_growth = referral_ratio * (upfront_bonus_growth / 100) * avg_deposit_estimate
 total_upfront_referral = upfront_referral_stable + upfront_referral_growth
 
 effective_cpa_min = cpa_min + total_upfront_referral
@@ -550,7 +553,7 @@ with col_action2:
                             'ggr_volatility': ggr_volatility,
                             'referral_ratio': referral_ratio,
                             'upfront_bonus_stable': upfront_bonus_stable,
-                            'upfront_bonus_growth': upfront_bonus_stable,
+                            'upfront_bonus_growth': upfront_bonus_growth,
                             'ongoing_share_stable': ongoing_share_stable,
                             'ongoing_share_growth': ongoing_share_growth,
                             'cpa_min': cpa_min,

@@ -135,9 +135,10 @@ class RevSharePoolGenerator:
         self.stable_pool_size = self.pool_size * self.stable_ratio
         self.growth_pool_size = self.pool_size * self.growth_ratio
         
-        # Upfront referral costs (paid immediately)
-        self.upfront_referral_stable = self.stable_pool_size * self.referral_ratio * self.upfront_bonus_stable
-        self.upfront_referral_growth = self.growth_pool_size * self.referral_ratio * self.upfront_bonus_growth
+        # Upfront referral costs (paid immediately) - now calculated as percentage of deposits
+        # These will be calculated dynamically based on actual deposits in generate_daily_data
+        self.upfront_referral_stable = 0.0  # Will be calculated per deposit
+        self.upfront_referral_growth = 0.0  # Will be calculated per deposit
 
         # Tunable calibration scales
         self._deposit_scale = 1.0
@@ -460,11 +461,19 @@ class RevSharePoolGenerator:
             # Calculate upfront referral bonuses for new deposits
             new_ftds_today = int(ftd_map.get(day, 0)) if day <= 30 else 0
             if new_ftds_today > 0:
-                # Assume referral ratio applies to new FTDs
+                # Calculate deposits from referrals
                 referral_ftds = new_ftds_today * self.referral_ratio
-                # Calculate upfront bonuses based on pool allocation
-                upfront_referral_stable = referral_ftds * stable_pool_size / self.pool_size * self.upfront_bonus_stable
-                upfront_referral_growth = referral_ftds * growth_pool_size / self.pool_size * self.upfront_bonus_growth
+                # Get average deposit for new FTDs (age = 1)
+                avg_new_deposit = self._get_avg_deposit(1, date)
+                total_referral_deposits = referral_ftds * avg_new_deposit
+                
+                # Calculate upfront bonuses as percentage of deposits
+                # Allocate deposits between pools based on pool ratios
+                stable_referral_deposits = total_referral_deposits * self.stable_ratio
+                growth_referral_deposits = total_referral_deposits * self.growth_ratio
+                
+                upfront_referral_stable = stable_referral_deposits * (self.upfront_bonus_stable / 100)
+                upfront_referral_growth = growth_referral_deposits * (self.upfront_bonus_growth / 100)
                 daily_upfront_referral = upfront_referral_stable + upfront_referral_growth
             else:
                 daily_upfront_referral = 0.0
